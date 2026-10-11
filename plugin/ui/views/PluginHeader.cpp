@@ -1,5 +1,9 @@
 #include "PluginHeader.h"
 
+#include <algorithm>
+#include <cmath>
+#include <memory>
+
 #include "core/Brand.h"
 #include "core/CustomIcons.h"
 #include "core/Design.h"
