@@ -8,6 +8,9 @@
 namespace t3k::ui::gallery {
 
 inline constexpr int kTileSize = 224;
+// Vertical room for two-line block/model labels around each square tile.
+inline constexpr int kLabelBand = 40;
+inline int laneHeight(int tile) { return tile + 2 * kLabelBand; }
 // Stereo shows two lanes, so its tiles shrink to fit the fixed height.
 inline constexpr int kStereoTileSize = 160;
 // Gap between tiles: the visible run of each connector line.
