@@ -29,7 +29,7 @@ public:
     title_.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
     targetLabel_.setText("Target level at first block (dBFS RMS)", juce::dontSendNotification);
     targetLabel_.setFont(juce::Font(14.0f));
-    targetDb_.setText("-12.0");
+    targetDb_.setText("-20.0");
     targetDb_.setInputRestrictions(12, "0123456789.-");
     targetDb_.setJustification(juce::Justification::centredLeft);
     status_.setText("Play your guitar, then press Measure.", juce::dontSendNotification);
@@ -159,7 +159,7 @@ private:
   double sumPower_ = 0.0;
   float peakDb_ = -120.0f;
   float measuredRmsDb_ = -120.0f;
-  float targetLevelDb_ = -12.0f;
+  float targetLevelDb_ = -20.0f;
 };
 
 
