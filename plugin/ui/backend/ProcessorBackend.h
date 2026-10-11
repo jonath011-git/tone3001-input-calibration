@@ -86,6 +86,8 @@ public:
   juce::var openBluetoothMidiPairing() override;
   void setAudioInputMetering(bool enabled) override;
   juce::var getAudioInputLevels() override;
+  float getPreChainInputRmsDb() const override;
+  float getPreChainInputPeakDb() const override;
 
   juce::var getMidiMapState() override;
   void setMidiChannelFilter(int channel) override;
