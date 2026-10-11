@@ -63,8 +63,9 @@ public:
   void paint(juce::Graphics& g) override {
     if (!branch) return;
     const float x = gallery::kEdgeFadeWidth + branch->tapGapX;
-    const float topCentre = tile / 2.0f;
-    const float bottomCentre = tile + gallery::kLaneGap + tile / 2.0f;
+    const int rowHeight = gallery::laneHeight(tile);
+    const float topCentre = gallery::kLabelBand + tile / 2.0f;
+    const float bottomCentre = rowHeight + gallery::kLaneGap + gallery::kLabelBand + tile / 2.0f;
     const float stubY = branch->trunkSide == ChainSide::left ? bottomCentre : topCentre;
     const float w = gallery::kLineWidth;
     g.setColour(theme::kWhite);
@@ -204,14 +205,15 @@ void ChainView::layoutColumn() {
   int content = left_.getWidth() + indentFor(ChainSide::left);
   if (stereo()) content = std::max(content, right_.getWidth() + indentFor(ChainSide::right));
   const int width = std::max(scroller_->getWidth(), content + 2 * gallery::kEdgeFadeWidth);
-  const int lanesHeight = stereo() ? tile * 2 + gallery::kLaneGap : tile;
+  const int rowHeight = gallery::laneHeight(tile);
+  const int lanesHeight = stereo() ? rowHeight * 2 + gallery::kLaneGap : rowHeight;
   const int height = scroller_->getHeight();
   const int lanesTop = (height - lanesHeight) / 2;
   column_->setSize(width, height);
   column_->setLanesTop(lanesTop);
   left_.setTopLeftPosition(gallery::kEdgeFadeWidth + indentFor(ChainSide::left), lanesTop);
   right_.setTopLeftPosition(gallery::kEdgeFadeWidth + indentFor(ChainSide::right),
-                            lanesTop + tile + gallery::kLaneGap);
+                            lanesTop + rowHeight + gallery::kLaneGap);
   column_->repaint();
 
   // Restore the persisted offset once the scroller has its size (an offset
