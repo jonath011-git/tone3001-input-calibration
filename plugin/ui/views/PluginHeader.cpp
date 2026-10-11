@@ -33,9 +33,14 @@ public:
     status_.setColour(juce::Label::textColourId, juce::Colour(0xffb8b8bf));
     measured_.setText("Input RMS: waiting for signal", juce::dontSendNotification);
     measured_.setFont(juce::Font(14.0f));
-    for (auto* c : {static_cast<juce::Component*>(&title_), &targetLabel_, &targetDb_,
-                    &status_, &measured_, &measureButton_, &applyButton_, &closeButton_})
-      addAndMakeVisible(*c);
+    addAndMakeVisible(title_);
+    addAndMakeVisible(targetLabel_);
+    addAndMakeVisible(targetDb_);
+    addAndMakeVisible(status_);
+    addAndMakeVisible(measured_);
+    addAndMakeVisible(measureButton_);
+    addAndMakeVisible(applyButton_);
+    addAndMakeVisible(closeButton_);
     measureButton_.setButtonText("Measure (3 s)");
     applyButton_.setButtonText("Apply gain");
     closeButton_.setButtonText("Close");
