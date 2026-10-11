@@ -4,6 +4,8 @@
 #include "core/Design.h"
 #include "core/Help.h"
 #include "core/Icons.h"
+#include "core/Fonts.h"
+#include "core/Paint.h"
 #include "core/Theme.h"
 #include "widgets/Clickable.h"
 
@@ -98,7 +100,7 @@ void GalleryLane::setItems(const std::vector<ChainItem>& items, int tileSize) {
   }
   tiles_ = std::move(next);  // dropped tiles (and their menus) go here
 
-  setSize(gallery::laneWidth(static_cast<int>(items_.size()), tile_), tile_);
+  setSize(gallery::laneWidth(static_cast<int>(items_.size()), tile_), gallery::laneHeight(tile_));
   rebuildBranchGaps();
   resized();
   repaint();
@@ -173,6 +175,7 @@ void GalleryLane::rebuildBranchGaps() {
                                                  });
     gap->setBounds(design::snap(gallery::gapCentreX(i + 1, tile_) - gallery::kTileGap / 2.0f), 0,
                    gallery::kTileGap, tile_);
+    gap->setTopLeftPosition(gap->getX(), gallery::kLabelBand);
     addAndMakeVisible(*gap);
     gap->toFront(false);
     gaps_.push_back(std::move(gap));
@@ -182,7 +185,7 @@ void GalleryLane::rebuildBranchGaps() {
 void GalleryLane::resized() {
   for (size_t i = 0; i < items_.size(); ++i)
     if (auto* tile = tileFor(items_[i].blockId))
-      tile->setBounds(gallery::tileX(static_cast<int>(i), tile_), 0, tile_, tile_);
+      tile->setBounds(gallery::tileX(static_cast<int>(i), tile_), gallery::kLabelBand, tile_, tile_);
 }
 
 // The ghost rail: one plus circle per slot, connector lines between them,
@@ -191,9 +194,50 @@ void GalleryLane::resized() {
 void GalleryLane::paint(juce::Graphics& g) {
   const int count = static_cast<int>(items_.size());
   if (count == 0) return;
+
+  // Keep labels outside the image tile so the artwork stays unobstructed.
+  // Names are deliberately painted by the lane (not the tile) to preserve
+  // the square hit target and drag geometry.
+  const auto labelFont = Fonts::sans(16.0f);
+  for (size_t i = 0; i < items_.size(); ++i) {
+    const auto& item = items_[i];
+    if (item.isInsert || item.blockId == placeholder_) continue;
+
+    juce::String topLabel;
+    juce::String bottomLabel;
+    if (item.externalVst3) {
+      topLabel = item.externalVst3Name.isNotEmpty() ? item.externalVst3Name : "VST3";
+      bottomLabel = "VST3";
+    } else {
+      topLabel = item.tone.title;
+      if (item.tone.image.isEmpty()) {
+        bottomLabel = "NAM";
+      } else {
+        for (const auto& model : item.tone.models) {
+          if (model.id == item.activeModelId) {
+            bottomLabel = model.name;
+            break;
+          }
+        }
+        if (bottomLabel.isEmpty()) bottomLabel = "NAM";
+      }
+    }
+
+    const int x = gallery::tileX(static_cast<int>(i), tile_) + 4;
+    const int width = tile_ - 8;
+    auto drawLabel = [&](const juce::String& text, juce::Rectangle<int> area) {
+      if (text.isEmpty()) return;
+      g.setFont(labelFont);
+      g.setColour(theme::kGray);
+      g.drawFittedText(text, area, juce::Justification::centred, 2, 0.8f);
+    };
+    drawLabel(topLabel, {x, 0, width, gallery::kLabelBand});
+    drawLabel(bottomLabel, {x, gallery::kLabelBand + tile_, width, gallery::kLabelBand});
+  }
+
   const int icon = gallery::plusIconSize(tile_);
   const float inset = gallery::plusCircleInset(icon);
-  const float cy = tile_ / 2.0f;
+  const float cy = gallery::kLabelBand + tile_ / 2.0f;
   // Tiles repaint on every meter tick; only draw the slots that actually
   // fall in the dirty area rather than re-rendering the SVG for every slot.
   const auto clip = g.getClipBounds().toFloat();
