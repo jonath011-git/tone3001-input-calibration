@@ -1,5 +1,9 @@
 #include "PluginHeader.h"
 
+#include <algorithm>
+#include <cmath>
+#include <memory>
+
 #include "core/Brand.h"
 #include "core/CustomIcons.h"
 #include "core/Design.h"
@@ -12,6 +16,153 @@
 namespace t3k::ui {
 
 namespace {
+
+// A small self-contained calibration panel. It samples the processor's raw
+// pre-gain input meter for three seconds, then adjusts the existing Input
+// Gain parameter so the level presented to the first chain block approaches
+// the requested RMS target. Peak headroom is kept below -1 dBFS.
+class InputCalibrationPopup final : public juce::Component, private juce::Timer {
+public:
+  explicit InputCalibrationPopup(Services& services) : services_(services) {
+    setSize(390, 285);
+    title_.setText("Input Calibration", juce::dontSendNotification);
+    title_.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
+    targetLabel_.setText("Target level at first block (dBFS RMS)", juce::dontSendNotification);
+    targetLabel_.setFont(juce::Font(14.0f));
+    targetDb_.setText("-12.0");
+    targetDb_.setInputRestrictions(12, "0123456789.-");
+    targetDb_.setJustification(juce::Justification::centredLeft);
+    status_.setText("Play your guitar, then press Measure.", juce::dontSendNotification);
+    status_.setFont(juce::Font(14.0f));
+    status_.setColour(juce::Label::textColourId, juce::Colour(0xffb8b8bf));
+    measured_.setText("Input RMS: waiting for signal", juce::dontSendNotification);
+    measured_.setFont(juce::Font(14.0f));
+    addAndMakeVisible(title_);
+    addAndMakeVisible(targetLabel_);
+    addAndMakeVisible(targetDb_);
+    addAndMakeVisible(status_);
+    addAndMakeVisible(measured_);
+    addAndMakeVisible(measureButton_);
+    addAndMakeVisible(applyButton_);
+    addAndMakeVisible(closeButton_);
+    measureButton_.setButtonText("Measure (3 s)");
+    applyButton_.setButtonText("Apply gain");
+    closeButton_.setButtonText("Close");
+    applyButton_.setEnabled(false);
+    measureButton_.onClick = [this] { beginMeasurement(); };
+    applyButton_.onClick = [this] { applyCalibration(); };
+    closeButton_.onClick = [this] {
+      if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+        box->dismiss();
+    };
+  }
+
+  void paint(juce::Graphics& g) override {
+    g.fillAll(juce::Colour(0xff171719));
+    g.setColour(juce::Colour(0xff45454c));
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 10.0f, 1.0f);
+  }
+
+  void resized() override {
+    auto r = getLocalBounds().reduced(18);
+    title_.setBounds(r.removeFromTop(30));
+    r.removeFromTop(12);
+    targetLabel_.setBounds(r.removeFromTop(22));
+    r.removeFromTop(4);
+    targetDb_.setBounds(r.removeFromTop(32));
+    r.removeFromTop(12);
+    status_.setBounds(r.removeFromTop(40));
+    measured_.setBounds(r.removeFromTop(24));
+    r.removeFromTop(8);
+    auto buttons = r.removeFromTop(32);
+    measureButton_.setBounds(buttons.removeFromLeft(132));
+    buttons.removeFromLeft(8);
+    applyButton_.setBounds(buttons.removeFromLeft(105));
+    buttons.removeFromLeft(8);
+    closeButton_.setBounds(buttons);
+  }
+
+private:
+  void beginMeasurement() {
+    if (targetDb_.getText().trim().isEmpty()) {
+      status_.setText("Enter a target level first.", juce::dontSendNotification);
+      return;
+    }
+    targetLevelDb_ = juce::jlimit(-36.0f, -3.0f, targetDb_.getText().getFloatValue());
+    sumPower_ = 0.0;
+    samples_ = 0;
+    peakDb_ = -120.0f;
+    ticks_ = 0;
+    measuredRmsDb_ = -120.0f;
+    applyButton_.setEnabled(false);
+    measureButton_.setEnabled(false);
+    status_.setText("Measuring — play at your normal strength...", juce::dontSendNotification);
+    startTimerHz(10);
+  }
+
+  void timerCallback() override {
+    ++ticks_;
+    const float rms = services_.backend.getPreChainInputRmsDb();
+    const float peak = services_.backend.getPreChainInputPeakDb();
+    if (rms > -60.0f && rms <= 6.0f) {
+      sumPower_ += std::pow(10.0, static_cast<double>(rms) / 10.0);
+      ++samples_;
+      peakDb_ = std::max(peakDb_, peak);
+    }
+    if (ticks_ < 30) return;
+    stopTimer();
+    measureButton_.setEnabled(true);
+    if (samples_ < 5) {
+      status_.setText("No usable signal detected. Check your input and try again.",
+                      juce::dontSendNotification);
+      measured_.setText("Input RMS: no signal", juce::dontSendNotification);
+      return;
+    }
+    measuredRmsDb_ = static_cast<float>(10.0 * std::log10(sumPower_ / samples_));
+    measured_.setText("Measured RMS: " + juce::String(measuredRmsDb_, 1) +
+                      " dBFS   |   Peak: " + juce::String(peakDb_, 1) + " dBFS",
+                      juce::dontSendNotification);
+    status_.setText("Measurement complete. Apply to update the existing Input knob.",
+                    juce::dontSendNotification);
+    applyButton_.setEnabled(true);
+  }
+
+  void applyCalibration() {
+    auto* parameter = services_.backend.parameter("inputLevel");
+    if (parameter == nullptr || samples_ == 0) {
+      status_.setText("Input Gain parameter is unavailable.", juce::dontSendNotification);
+      return;
+    }
+    const float currentNormalized = parameter->getValue();
+    const float currentGainDb = (currentNormalized - 0.5f) * 48.0f;
+    const float measuredAtChainDb = measuredRmsDb_ + currentGainDb;
+    float correctionDb = targetLevelDb_ - measuredAtChainDb;
+
+    // Avoid pushing measured peaks above -1 dBFS after the current Input gain.
+    const float peakAtChainDb = peakDb_ + currentGainDb;
+    const float safeCorrectionDb = -1.0f - peakAtChainDb;
+    correctionDb = std::min(correctionDb, safeCorrectionDb);
+    const float newGainDb = juce::jlimit(-24.0f, 24.0f, currentGainDb + correctionDb);
+    const float newNormalized = juce::jlimit(0.0f, 1.0f, (newGainDb + 24.0f) / 48.0f);
+    parameter->setValueNotifyingHost(newNormalized);
+    status_.setText("Applied. Input Gain is now " + juce::String(newGainDb, 1) +
+                    " dB. Play again to verify.", juce::dontSendNotification);
+    applyButton_.setEnabled(false);
+  }
+
+  Services& services_;
+  juce::Label title_, targetLabel_, status_, measured_;
+  juce::TextEditor targetDb_;
+  juce::TextButton measureButton_, applyButton_, closeButton_;
+  int ticks_ = 0;
+  int samples_ = 0;
+  double sumPower_ = 0.0;
+  float peakDb_ = -120.0f;
+  float measuredRmsDb_ = -120.0f;
+  float targetLevelDb_ = -12.0f;
+};
+
+
 constexpr int kPadX = 24;
 constexpr int kGroupGap = 40;  // between header items
 constexpr int kPairGap = 16;   // tight pairs (undo/redo)
@@ -39,6 +190,12 @@ PluginHeader::PluginHeader(Services& services)
       tuner_(custom_icons::kTuningFork, 28, 18) {
   addAndMakeVisible(*logo_);
   addAndMakeVisible(presetBar_);
+  addAndMakeVisible(calibrationButton_);
+  calibrationButton_.setTooltip("Calibrate the signal level before the first NAM/VST3 block");
+  calibrationButton_.onClick = [this] {
+    auto popup = std::make_unique<InputCalibrationPopup>(services_);
+    juce::CallOutBox::launchAsynchronously(std::move(popup), calibrationButton_.getScreenBounds(), this);
+  };
 
   vst3LibraryButton_.setTooltip(juce::String::fromUTF8("Bibliothèque de plug-ins VST3"));
   vst3LibraryButton_.onClick = [this] {
@@ -193,6 +350,7 @@ void PluginHeader::resized() {
 
   logo_->setBounds(area.getX(), cy - kLogoHeight / 2, kLogoWidth, kLogoHeight);
   vst3LibraryButton_.setBounds(area.getX() + kLogoWidth + 20, cy - 15, 58, 30);
+  calibrationButton_.setBounds(area.getX() + kLogoWidth + 20 + 58 + 8, cy - 15, 48, 30);
 
   // Right group, laid out from the right edge: account · undo/redo · tuner ·
   // stereo · presets, 40px apart (16px inside the undo/redo pair).

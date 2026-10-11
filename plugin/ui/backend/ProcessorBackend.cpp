@@ -212,6 +212,14 @@ juce::var ProcessorBackend::getAudioInputLevels() {
   return withAudioSettings([](auto& s) { return s.getInputLevels(); });
 }
 
+float ProcessorBackend::getPreChainInputRmsDb() const {
+  return processor_.getPreChainInputRmsDb();
+}
+
+float ProcessorBackend::getPreChainInputPeakDb() const {
+  return processor_.getPreChainInputPeakDb();
+}
+
 // MIDI mapping
 juce::var ProcessorBackend::getMidiMapState() { return processor_.midiMapper.getState(); }
 void ProcessorBackend::setMidiChannelFilter(int channel) {

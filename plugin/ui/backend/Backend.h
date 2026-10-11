@@ -111,6 +111,11 @@ public:
   virtual void setAudioInputMetering(bool enabled) = 0;
   virtual juce::var getAudioInputLevels() = 0;
 
+  // Raw signal levels after input-channel folding but before the global Input
+  // Gain, gate, or any NAM/VST3 block. Defaults keep fixture backends usable.
+  virtual float getPreChainInputRmsDb() const { return -120.0f; }
+  virtual float getPreChainInputPeakDb() const { return -120.0f; }
+
   // MIDI mapping (every build)
   virtual juce::var getMidiMapState() = 0;
   virtual void setMidiChannelFilter(int channel) = 0;

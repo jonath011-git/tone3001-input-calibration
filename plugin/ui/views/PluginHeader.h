@@ -48,6 +48,7 @@ private:
   IconButton redo_{Icon::Redo2, 28};
   AccountMenu account_;
   juce::TextButton vst3LibraryButton_{"VST3"};
+  juce::TextButton calibrationButton_{"Cal"};
   std::unique_ptr<juce::FileChooser> vst3FolderChooser_;
   bool tunerShown_ = false;
 };
