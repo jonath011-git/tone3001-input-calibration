@@ -45,6 +45,11 @@ public:
   bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
   void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+  // Input calibration source: levels measured before global Input Gain and
+  // before any block in the NAM/VST3 chain.
+  float getPreChainInputRmsDb() const noexcept { return preChainInputRmsDb.load(); }
+  float getPreChainInputPeakDb() const noexcept { return preChainInputPeakDb.load(); }
   using AudioProcessor::processBlock;
 
   juce::AudioProcessorEditor* createEditor() override;
@@ -1258,6 +1263,8 @@ private:
   juce::AudioProcessLoadMeasurer loadMeasurer;
 
   // Meter level tracking, per channel (mono sources report L == R).
+  mutable std::atomic<float> preChainInputRmsDb{-120.0f};
+  mutable std::atomic<float> preChainInputPeakDb{-120.0f};
   mutable std::atomic<float> inputMeterLevelL{-60.0f};
   mutable std::atomic<float> inputMeterLevelR{-60.0f};
   mutable std::atomic<float> outputMeterLevelL{-60.0f};
