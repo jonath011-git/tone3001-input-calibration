@@ -194,7 +194,11 @@ PluginHeader::PluginHeader(Services& services)
   calibrationButton_.setTooltip("Calibrate the signal level before the first NAM/VST3 block");
   calibrationButton_.onClick = [this] {
     auto popup = std::make_unique<InputCalibrationPopup>(services_);
-    juce::CallOutBox::launchAsynchronously(std::move(popup), calibrationButton_.getScreenBounds(), this);
+    // Parent the callout to the full plugin root, not this 64px header. Using
+    // the header clips the popup at the header's bottom edge (the rest sits
+    // outside the parent's bounds and is never painted or clickable).
+    auto* popupParent = getParentComponent();
+    juce::CallOutBox::launchAsynchronously(std::move(popup), calibrationButton_.getScreenBounds(), popupParent);
   };
 
   vst3LibraryButton_.setTooltip(juce::String::fromUTF8("Bibliothèque de plug-ins VST3"));
