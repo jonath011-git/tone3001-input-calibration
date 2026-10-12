@@ -20,16 +20,16 @@ namespace {
 // A small self-contained calibration panel. It samples the processor's raw
 // pre-gain input meter for three seconds, then adjusts the existing Input
 // Gain parameter so the level presented to the first chain block approaches
-// the requested RMS target. Peak headroom is kept below -1 dBFS.
+// the requested peak target. A separate safety ceiling is kept below -1 dBFS.
 class InputCalibrationPopup final : public juce::Component, private juce::Timer {
 public:
   explicit InputCalibrationPopup(Services& services) : services_(services) {
     setSize(390, 285);
     title_.setText("Input Calibration", juce::dontSendNotification);
     title_.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
-    targetLabel_.setText("Target level at first block (dBFS RMS)", juce::dontSendNotification);
+    targetLabel_.setText("Target peak at first block (dBFS)", juce::dontSendNotification);
     targetLabel_.setFont(juce::Font(14.0f));
-    targetDb_.setText("-20.0");
+    targetDb_.setText("-12.0");
     targetDb_.setInputRestrictions(12, "0123456789.-");
     targetDb_.setJustification(juce::Justification::centredLeft);
     status_.setText("Play your guitar, then press Measure.", juce::dontSendNotification);
@@ -88,7 +88,7 @@ private:
       status_.setText("Enter a target level first.", juce::dontSendNotification);
       return;
     }
-    targetLevelDb_ = juce::jlimit(-36.0f, -3.0f, targetDb_.getText().getFloatValue());
+    targetPeakDb_ = juce::jlimit(-36.0f, -3.0f, targetDb_.getText().getFloatValue());
     sumPower_ = 0.0;
     samples_ = 0;
     peakDb_ = -120.0f;
@@ -135,11 +135,10 @@ private:
     }
     const float currentNormalized = parameter->getValue();
     const float currentGainDb = (currentNormalized - 0.5f) * 48.0f;
-    const float measuredAtChainDb = measuredRmsDb_ + currentGainDb;
-    float correctionDb = targetLevelDb_ - measuredAtChainDb;
+    const float peakAtChainDb = peakDb_ + currentGainDb;
+    float correctionDb = targetPeakDb_ - peakAtChainDb;
 
     // Avoid pushing measured peaks above -1 dBFS after the current Input gain.
-    const float peakAtChainDb = peakDb_ + currentGainDb;
     const float safeCorrectionDb = -1.0f - peakAtChainDb;
     correctionDb = std::min(correctionDb, safeCorrectionDb);
     const float newGainDb = juce::jlimit(-24.0f, 24.0f, currentGainDb + correctionDb);
@@ -159,7 +158,7 @@ private:
   double sumPower_ = 0.0;
   float peakDb_ = -120.0f;
   float measuredRmsDb_ = -120.0f;
-  float targetLevelDb_ = -20.0f;
+  float targetPeakDb_ = -12.0f;
 };
 
 
