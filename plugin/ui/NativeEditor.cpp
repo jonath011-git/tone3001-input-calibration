@@ -137,11 +137,12 @@ void NativeEditor::applyScaledSize(double scale) {
 }
 
 void NativeEditor::updateResizeConstraints() {
+  // Keep the design-width minimum, but allow additional height independently
+  // so the signal-chain area can breathe in stereo mode.
   setResizeLimits(design::kWidth, designHeight(), juce::roundToInt(design::kWidth * design::kMaxScale),
-                  juce::roundToInt(designHeight() * design::kMaxScale));
-  // The ratio tracks the chrome strips, so corner drags at any extra-height
-  // state preserve the current layout exactly.
-  getConstrainer()->setFixedAspectRatio(static_cast<double>(design::kWidth) / designHeight());
+                  juce::roundToInt((designHeight() + kMaxExtraHeight) * design::kMaxScale));
+  if (auto* constrainer = getConstrainer())
+    constrainer->setFixedAspectRatio(0.0);
 }
 
 void NativeEditor::setExtraContentHeight(int total, int persistent) {
@@ -151,7 +152,8 @@ void NativeEditor::setExtraContentHeight(int total, int persistent) {
   // editor opens pre-sized for the chrome the UI will render on first paint.
   processor_.editorExtraHeight.store(juce::jlimit(0, kMaxExtraHeight, persistent));
   if (clamped == extraContentHeight_) return;
-  const bool grew = clamped > extraContentHeight_;
+  const int previousExtraHeight = extraContentHeight_;
+  const bool grew = clamped > previousExtraHeight;
   extraContentHeight_ = clamped;
   // Before the constructor has sized us there is nothing to resize yet.
   if (getWidth() == 0) return;
@@ -163,18 +165,16 @@ void NativeEditor::setExtraContentHeight(int total, int persistent) {
   // The window is the screen; it cannot grow. Shrink the box to fit.
   fitRoot();
 #else
-  // setSize() reaches the host as a resize request through the plugin
-  // wrapper (resizeView in VST3); a host that refuses keeps the old size and
-  // fitRoot letterboxes instead. Constrainer values are set directly rather
-  // than via setResizeLimits(), which re-applies to the *current* bounds and
-  // can snap the width for a frame mid-change.
+  // Preserve any user-added vertical space while adding/removing chrome.
+  // Do not force the window back to the old aspect ratio.
   const double scale = currentScale();
   if (auto* c = getConstrainer()) {
     c->setSizeLimits(design::kWidth, designHeight(), juce::roundToInt(design::kWidth * design::kMaxScale),
-                     juce::roundToInt(designHeight() * design::kMaxScale));
-    c->setFixedAspectRatio(static_cast<double>(design::kWidth) / designHeight());
+                     juce::roundToInt((designHeight() + kMaxExtraHeight) * design::kMaxScale));
+    c->setFixedAspectRatio(0.0);
   }
-  applyScaledSize(scale);
+  const int chromeDelta = juce::roundToInt((clamped - previousExtraHeight) * scale);
+  setSize(getWidth(), juce::jmax(juce::roundToInt(designHeight() * scale), getHeight() + chromeDelta));
   fitRoot();
 #endif
 }
@@ -198,6 +198,11 @@ void NativeEditor::fitRoot() {
     stopTimer();
   }
   scale = juce::jmax(0.05, scale);
+  // The root remains at the design width, but its design-space height follows
+  // the actual window height. PluginRoot then gives the extra space to MainScreen
+  // while keeping the header and faceplate at their designed sizes.
+  const int availableDesignHeight = juce::jmax(designHeight(), juce::roundToInt(getHeight() / scale));
+  root_.setSize(design::kWidth, availableDesignHeight);
   root_.setTransform(juce::AffineTransform::scale(static_cast<float>(scale)));
   services_.zoom.set(scale);
   // Top-anchored, horizontally centred. iOS centres vertically too: its
