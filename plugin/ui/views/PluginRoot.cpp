@@ -196,8 +196,13 @@ void PluginRoot::updateChromeHeight() {
   const int hintExtra = hintsVisible_ ? design::kHintHeight : 0;
   const int bannerExtra = bannerPhase_ != BannerPhase::hidden ? AppBanner::kHeight : 0;
   hintBar_.setVisible(hintsVisible_);
-  setSize(design::kWidth, design::kHeight + bannerExtra + hintExtra);
-  services_.shell.setExtraContentHeight(bannerExtra + hintExtra, hintExtra);
+  // Keep any extra vertical space the user has dragged open, while
+  // changing only the amount needed for the chrome strips.
+  const int newChromeHeight = bannerExtra + hintExtra;
+  const int flexibleExtra = juce::jmax(0, getHeight() - (design::kHeight + chromeHeight_));
+  chromeHeight_ = newChromeHeight;
+  setSize(design::kWidth, design::kHeight + newChromeHeight + flexibleExtra);
+  services_.shell.setExtraContentHeight(newChromeHeight, hintExtra);
 }
 
 // Banner choreography
@@ -458,7 +463,7 @@ void PluginRoot::resized() {
   const int slotH = bannerPhase_ == BannerPhase::shown ? AppBanner::kHeight : 0;
   banner_.setBounds(0, 0, design::kWidth, AppBanner::kHeight);
   const int hintH = hintsVisible_ ? design::kHintHeight : 0;
-  auto column = juce::Rectangle<int>(0, slotH, design::kWidth, design::kHeight + hintH);
+  auto column = juce::Rectangle<int>(0, slotH, design::kWidth, juce::jmax(0, getHeight() - slotH));
   if (hintsVisible_) hintBar_.setBounds(column.removeFromBottom(hintH));
   header_.setBounds(column.removeFromTop(PluginHeader::kHeight));
   if (browser_) browser_->setBounds(column);  // the rest, faceplate included
