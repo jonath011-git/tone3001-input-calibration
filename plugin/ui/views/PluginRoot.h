@@ -159,6 +159,7 @@ private:
   HintTracker hintTracker_;
   PointerTracker pointerTracker_;
   bool hintsVisible_ = true;
+  int chromeHeight_ = 0;
 
   BannerPhase bannerPhase_ = BannerPhase::hidden;
   DelayedCall bannerWait_;
