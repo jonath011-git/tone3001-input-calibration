@@ -201,6 +201,11 @@ void ExternalVst3Host::prepare(double sampleRate, int maximumBlockSize) {
     return;
   instance->releaseResources();
   instance->prepareToPlay(sampleRate, maximumBlockSize);
+
+  // Stereo-chain mode processes each lane as a mono buffer. Reserve a
+  // two-channel bridge here (never in processBlock) for stereo VST3 effects.
+  monoBridgeBuffer.setSize(2, maximumBlockSize, false, true, false);
+  monoBridgeBuffer.clear();
 }
 
 ExternalVst3Host::~ExternalVst3Host() {
@@ -249,11 +254,51 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
                                     juce::MidiBuffer& midi) noexcept {
   if (instance == nullptr)
     return;
+
+  // In stereo-chain mode, each lane is deliberately a one-channel signal.
+  // Many VST3 effects are configured for a stereo bus and won't process that
+  // one-channel AudioBuffer correctly. Bridge mono lanes through a prepared
+  // stereo buffer, then fold the plug-in's stereo output back to the lane.
+  const int inputChannels = instance->getTotalNumInputChannels();
+  const int outputChannels = instance->getTotalNumOutputChannels();
+  const int numSamples = audio.getNumSamples();
+  const bool needsStereoBridge =
+      audio.getNumChannels() == 1 && juce::jmax(inputChannels, outputChannels) > 1;
+
   try {
-    instance->processBlock(audio, midi);
+    if (!needsStereoBridge) {
+      instance->processBlock(audio, midi);
+      return;
+    }
+
+    // Never resize or allocate on the audio thread. The normal chain path
+    // slices callbacks to the prepared block size; if a host violates that
+    // contract, leave this block as dry pass-through rather than overrun.
+    if (numSamples > monoBridgeBuffer.getNumSamples())
+      return;
+
+    monoBridgeBuffer.clear(0, numSamples);
+    monoBridgeBuffer.clear(1, numSamples);
+    monoBridgeBuffer.copyFrom(0, 0, audio, 0, 0, numSamples);
+    if (inputChannels > 1)
+      monoBridgeBuffer.copyFrom(1, 0, audio, 0, 0, numSamples);
+
+    juce::AudioBuffer<float> bridgeView(monoBridgeBuffer.getArrayOfWritePointers(), 2,
+                                        numSamples);
+    instance->processBlock(bridgeView, midi);
+
+    if (outputChannels > 1) {
+      // A lane is mono, so combine the VST3's stereo output without changing
+      // the nominal level of a centered, dual-mono signal.
+      audio.copyFrom(0, 0, bridgeView, 0, 0, numSamples);
+      audio.addFrom(0, 0, bridgeView, 1, 0, numSamples);
+      audio.applyGain(0, 0, numSamples, 0.5f);
+    } else {
+      audio.copyFrom(0, 0, bridgeView, 0, 0, numSamples);
+    }
   } catch (...) {
     // Never let a third-party exception unwind through the host audio callback.
-    audio.clear();
+    // Keep the original lane signal audible if the plug-in fails.
     midi.clear();
   }
 }
