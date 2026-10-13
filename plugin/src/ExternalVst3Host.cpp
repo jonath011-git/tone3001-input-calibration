@@ -259,11 +259,15 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
   // Many VST3 effects are configured for a stereo bus and won't process that
   // one-channel AudioBuffer correctly. Bridge mono lanes through a prepared
   // stereo buffer, then fold the plug-in's stereo output back to the lane.
-  const int inputChannels = instance->getTotalNumInputChannels();
-  const int outputChannels = instance->getTotalNumOutputChannels();
+  // Use the main audio buses rather than total channel counts: total counts
+  // may include auxiliary/side-chain buses, which are not represented by the
+  // two-channel bridge buffer.
+  const auto buses = instance->getBusesLayout();
+  const int inputChannels = buses.getMainInputChannelSet().size();
+  const int outputChannels = buses.getMainOutputChannelSet().size();
   const int numSamples = audio.getNumSamples();
   const bool needsStereoBridge =
-      audio.getNumChannels() == 1 && juce::jmax(inputChannels, outputChannels) > 1;
+      audio.getNumChannels() == 1 && (inputChannels > 1 || outputChannels > 1);
 
   try {
     if (!needsStereoBridge) {
@@ -279,17 +283,20 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
 
     monoBridgeBuffer.clear(0, numSamples);
     monoBridgeBuffer.clear(1, numSamples);
+    // Feed the same mono lane signal to both inputs of a stereo effect.
     monoBridgeBuffer.copyFrom(0, 0, audio, 0, 0, numSamples);
     if (inputChannels > 1)
       monoBridgeBuffer.copyFrom(1, 0, audio, 0, 0, numSamples);
+    else
+      monoBridgeBuffer.copyFrom(1, 0, monoBridgeBuffer, 0, 0, numSamples);
 
     juce::AudioBuffer<float> bridgeView(monoBridgeBuffer.getArrayOfWritePointers(), 2,
                                         numSamples);
     instance->processBlock(bridgeView, midi);
 
     if (outputChannels > 1) {
-      // A lane is mono, so combine the VST3's stereo output without changing
-      // the nominal level of a centered, dual-mono signal.
+      // A stereo VST3 output must be reduced to mono before this lane continues.
+      // Use an equal-power downmix rather than simply discarding the right side.
       audio.copyFrom(0, 0, bridgeView, 0, 0, numSamples);
       audio.addFrom(0, 0, bridgeView, 1, 0, numSamples);
       audio.applyGain(0, 0, numSamples, 0.5f);
