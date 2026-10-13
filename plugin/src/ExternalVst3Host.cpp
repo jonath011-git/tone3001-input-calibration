@@ -210,7 +210,6 @@ void ExternalVst3Host::prepare(double sampleRate, int maximumBlockSize) {
       "[VST3-DIAG] prepare name=" + pluginDescription.name
       + " | rate=" + juce::String(sampleRate)
       + " | maxBlock=" + juce::String(maximumBlockSize)
-      + " | prepared=" + juce::String(instance->isPrepared() ? "yes" : "no")
       + " | inputBuses=" + juce::String(layout.inputBuses.size())
       + " | outputBuses=" + juce::String(layout.outputBuses.size())
       + " | mainIn=" + juce::String(layout.getMainInputChannelSet().size())
@@ -312,7 +311,6 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
             + " | outPeak=" + juce::String(outputPeak, 6));
       }
 #endif
-      instance->processBlock(audio, midi);
       return;
     }
 
