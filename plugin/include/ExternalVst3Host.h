@@ -70,6 +70,8 @@ private:
 
   juce::PluginDescription pluginDescription;
   std::unique_ptr<juce::AudioPluginInstance> instance;
+  // Preallocated scratch for stereo VST3s running in a mono signal-chain lane.
+  juce::AudioBuffer<float> monoBridgeBuffer;
   // Declared after instance so the editor window is destroyed first.
   std::unique_ptr<EditorWindow> editorWindow;
 };
