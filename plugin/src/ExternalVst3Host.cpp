@@ -298,7 +298,10 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
     }
   } catch (...) {
     // Never let a third-party exception unwind through the host audio callback.
-    // Keep the original lane signal audible if the plug-in fails.
+    // The bridge path hasn't touched the original lane buffer yet, so it stays
+    // dry on failure. Preserve the previous fail-safe for direct processing.
+    if (!needsStereoBridge)
+      audio.clear();
     midi.clear();
   }
 }
