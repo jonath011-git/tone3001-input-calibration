@@ -202,6 +202,22 @@ void ExternalVst3Host::prepare(double sampleRate, int maximumBlockSize) {
   instance->releaseResources();
   instance->prepareToPlay(sampleRate, maximumBlockSize);
 
+  // Log the effective configuration after every prepare/re-prepare. Some
+  // VST3s renegotiate their buses when the chain mode changes; this lets us
+  // verify whether that transition actually changes their active layout.
+  const auto layout = instance->getBusesLayout();
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] prepare name=" + pluginDescription.name
+      + " | rate=" + juce::String(sampleRate)
+      + " | maxBlock=" + juce::String(maximumBlockSize)
+      + " | prepared=" + juce::String(instance->isPrepared() ? "yes" : "no")
+      + " | inputBuses=" + juce::String(layout.inputBuses.size())
+      + " | outputBuses=" + juce::String(layout.outputBuses.size())
+      + " | mainIn=" + juce::String(layout.getMainInputChannelSet().size())
+      + " | mainOut=" + juce::String(layout.getMainOutputChannelSet().size())
+      + " | totalIn=" + juce::String(instance->getTotalNumInputChannels())
+      + " | totalOut=" + juce::String(instance->getTotalNumOutputChannels()));
+
   // Stereo-chain mode processes each lane as a mono buffer. Reserve a
   // two-channel bridge here (never in processBlock) for stereo VST3 effects.
   monoBridgeBuffer.setSize(2, maximumBlockSize, false, true, false);
@@ -269,8 +285,33 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
   const bool needsStereoBridge =
       audio.getNumChannels() == 1 && (inputChannels > 1 || outputChannels > 1);
 
+#if JUCE_DEBUG
+  // Debug-only, throttled signal-path probe. Keep release audio processing
+  // untouched and avoid logging on every callback.
+  static std::atomic<unsigned int> diagnosticCallbackCount{0};
+  const auto diagnosticCount = diagnosticCallbackCount.fetch_add(1, std::memory_order_relaxed);
+  const bool emitDiagnostic = (diagnosticCount % 512u) == 0u;
+  float inputPeak = 0.0f;
+  if (emitDiagnostic)
+    for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+      inputPeak = juce::jmax(inputPeak, audio.getMagnitude(channel, 0, numSamples));
+#endif
+
   try {
     if (!needsStereoBridge) {
+      instance->processBlock(audio, midi);
+#if JUCE_DEBUG
+      if (emitDiagnostic) {
+        float outputPeak = 0.0f;
+        for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+          outputPeak = juce::jmax(outputPeak, audio.getMagnitude(channel, 0, numSamples));
+        juce::Logger::writeToLog(
+            "[VST3-DIAG] process name=" + pluginDescription.name
+            + " | path=direct | inCh=" + juce::String(audio.getNumChannels())
+            + " | inPeak=" + juce::String(inputPeak, 6)
+            + " | outPeak=" + juce::String(outputPeak, 6));
+      }
+#endif
       instance->processBlock(audio, midi);
       return;
     }
@@ -293,6 +334,21 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
     juce::AudioBuffer<float> bridgeView(monoBridgeBuffer.getArrayOfWritePointers(), 2,
                                         numSamples);
     instance->processBlock(bridgeView, midi);
+
+#if JUCE_DEBUG
+    if (emitDiagnostic) {
+      const float leftPeak = bridgeView.getMagnitude(0, 0, numSamples);
+      const float rightPeak = bridgeView.getMagnitude(1, 0, numSamples);
+      juce::Logger::writeToLog(
+          "[VST3-DIAG] process name=" + pluginDescription.name
+          + " | path=stereo-bridge"
+          + " | inPeak=" + juce::String(inputPeak, 6)
+          + " | outLPeak=" + juce::String(leftPeak, 6)
+          + " | outRPeak=" + juce::String(rightPeak, 6)
+          + " | mainIn=" + juce::String(inputChannels)
+          + " | mainOut=" + juce::String(outputChannels));
+    }
+#endif
 
     if (outputChannels > 1) {
       // A stereo VST3 output must be reduced to mono before this lane continues.
