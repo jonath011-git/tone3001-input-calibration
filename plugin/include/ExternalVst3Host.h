@@ -66,12 +66,19 @@ private:
   class EditorWindow;
 
   ExternalVst3Host(juce::PluginDescription description,
-                   std::unique_ptr<juce::AudioPluginInstance> plugin);
+                   std::unique_ptr<juce::AudioPluginInstance> plugin,
+                   int maximumBlockSize);
 
   juce::PluginDescription pluginDescription;
   std::unique_ptr<juce::AudioPluginInstance> instance;
-  // Preallocated scratch for stereo VST3s running in a mono signal-chain lane.
-  juce::AudioBuffer<float> monoBridgeBuffer;
+  // Preallocated host buffer with the exact channel count required by the
+  // plug-in. It is used for both direct and mono↔stereo adaptation so the
+  // audio thread never allocates and a plug-in exception cannot erase dry audio.
+  juce::AudioBuffer<float> pluginBuffer;
+  int mainInputChannels{0};
+  int mainOutputChannels{0};
+  int totalInputChannels{0};
+  int totalOutputChannels{0};
   // Declared after instance so the editor window is destroyed first.
   std::unique_ptr<EditorWindow> editorWindow;
 };
