@@ -177,6 +177,44 @@ std::unique_ptr<ExternalVst3Host> ExternalVst3Host::create(
     return {};
   }
 
+  // Some VST3s instantiate with their main buses disabled. In that state
+  // JUCE reports zero total channels even though the component exposes audio
+  // buses. Enable only the main input/output buses before querying the active
+  // layout or preparing the processor.
+  const int inputBusCountBefore = instance->getBusCount(true);
+  const int outputBusCountBefore = instance->getBusCount(false);
+  juce::String busStateBefore;
+  for (int i = 0; i < inputBusCountBefore; ++i) {
+    auto* bus = instance->getBus(true, i);
+    if (bus != nullptr) {
+      busStateBefore += " inBus" + juce::String(i)
+          + "{enabled=" + juce::String(bus->isEnabled() ? "yes" : "no")
+          + ",channels=" + juce::String(bus->getNumberOfChannels())
+          + ",default=" + juce::String(bus->getDefaultLayout().size()) + "}";
+      if (i == 0 && !bus->isEnabled())
+        bus->enable(true);
+    }
+  }
+  for (int i = 0; i < outputBusCountBefore; ++i) {
+    auto* bus = instance->getBus(false, i);
+    if (bus != nullptr) {
+      busStateBefore += " outBus" + juce::String(i)
+          + "{enabled=" + juce::String(bus->isEnabled() ? "yes" : "no")
+          + ",channels=" + juce::String(bus->getNumberOfChannels())
+          + ",default=" + juce::String(bus->getDefaultLayout().size()) + "}";
+      if (i == 0 && !bus->isEnabled())
+        bus->enable(true);
+    }
+  }
+
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] bus negotiation name=" + description.name
+      + " | busesBefore=" + busStateBefore
+      + " | inputBuses=" + juce::String(instance->getBusCount(true))
+      + " | outputBuses=" + juce::String(instance->getBusCount(false))
+      + " | inputsAfterEnable=" + juce::String(instance->getTotalNumInputChannels())
+      + " | outputsAfterEnable=" + juce::String(instance->getTotalNumOutputChannels()));
+
   juce::Logger::writeToLog(
       "[VST3-DIAG] create success name=" + description.name
       + " | inputs=" + juce::String(instance->getTotalNumInputChannels())
