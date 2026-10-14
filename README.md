@@ -1,4 +1,6 @@
-# TONE3000 Plugin
+# TONE3000 Plugin mod
+<img width="1377" height="1061" alt="image" src="https://github.com/user-attachments/assets/39c1dd8f-50e8-48a4-a2ce-9bb29ce382ec" />
+
 
 A JUCE-based audio plugin (VST3, AU, CLAP, LV2, Standalone) that loads
 **Neural Amp Modeler (NAM)** captures and **impulse responses (IRs)** straight
