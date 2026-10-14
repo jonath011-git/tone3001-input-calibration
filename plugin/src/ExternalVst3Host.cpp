@@ -153,15 +153,41 @@ std::unique_ptr<ExternalVst3Host> ExternalVst3Host::create(
     return {};
   }
 
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] create begin name=" + description.name
+      + " | format=" + description.pluginFormatName
+      + " | file=" + description.fileOrIdentifier
+      + " | rate=" + juce::String(sampleRate)
+      + " | maxBlock=" + juce::String(maximumBlockSize));
+
+  juce::String creationError;
   auto instance = manager->createPluginInstance(description, sampleRate,
-                                                maximumBlockSize, error);
-  if (instance == nullptr)
+                                                maximumBlockSize, creationError);
+  if (instance == nullptr) {
+    error = creationError.isNotEmpty() ? creationError
+                                       : "JUCE returned no VST3 instance and no error message.";
+    juce::Logger::writeToLog(
+        "[VST3-DIAG] create FAILED name=" + description.name
+        + " | error=" + error);
+    CrashDiagnostics::logEvent(
+        "VST3-ERROR",
+        ("createPluginInstance failed for " + description.name
+         + " | file=" + description.fileOrIdentifier
+         + " | error=" + error).toRawUTF8());
     return {};
+  }
+
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] create success name=" + description.name
+      + " | inputs=" + juce::String(instance->getTotalNumInputChannels())
+      + " | outputs=" + juce::String(instance->getTotalNumOutputChannels()));
 
   instance->setNonRealtime(false);
   instance->prepareToPlay(sampleRate, maximumBlockSize);
-  return std::unique_ptr<ExternalVst3Host>(
+  auto host = std::unique_ptr<ExternalVst3Host>(
       new ExternalVst3Host(description, std::move(instance), maximumBlockSize));
+  juce::Logger::writeToLog("[VST3-DIAG] host ready name=" + description.name);
+  return host;
 #else
   juce::ignoreUnused(description, sampleRate, maximumBlockSize);
   error = "VST3 hosting is disabled for this platform/build.";
