@@ -50,6 +50,7 @@ private:
   juce::TextButton vst3LibraryButton_{"VST3"};
   juce::TextButton calibrationButton_{"Cal"};
   std::unique_ptr<juce::FileChooser> vst3FolderChooser_;
+  std::unique_ptr<juce::FileChooser> backgroundChooser_;
   bool tunerShown_ = false;
 };
 
