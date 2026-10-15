@@ -289,6 +289,25 @@ PluginHeader::PluginHeader(Services& services)
   account_.onOpenSettings = [this] {
     if (onOpenSettings) onOpenSettings();
   };
+  account_.onChooseBackground = [this] {
+    backgroundChooser_ = std::make_unique<juce::FileChooser>(
+        juce::String::fromUTF8("Choisir une image de fond"), juce::File(),
+        "*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif");
+    juce::Component::SafePointer<PluginHeader> safeThis(this);
+    backgroundChooser_->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis](const juce::FileChooser& chooser) {
+      const auto selected = chooser.getResult();
+      juce::MessageManager::callAsync([safeThis, selected] {
+        if (safeThis == nullptr) return;
+        if (selected.existsAsFile()) {
+          safeThis->services_.prefs.set("t3k.backgroundImage", selected.getFullPathName());
+          safeThis->services_.toast.show(juce::String::fromUTF8("Image de fond mise à jour."));
+        }
+        safeThis->backgroundChooser_.reset();
+      });
+    });
+  };
   account_.onLogin = [this] {
     if (onLogin) onLogin();
   };
