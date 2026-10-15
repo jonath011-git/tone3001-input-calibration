@@ -18,9 +18,10 @@ constexpr int kMenuGap = 8;  // top: calc(100% + 8)
 // Menu
 AccountMenu::Menu::Menu() {
   addAndMakeVisible(settings);
+  addAndMakeVisible(background);
   addChildComponent(login);
   addChildComponent(logout);
-  setSize(kMenuMinWidth, kBorder * 2 + kMenuPad * 2 + MenuRow::kHeight * 2);
+  setSize(kMenuMinWidth, kBorder * 2 + kMenuPad * 2 + MenuRow::kHeight * 3);
 }
 
 void AccountMenu::Menu::paint(juce::Graphics& g) {
@@ -32,9 +33,10 @@ void AccountMenu::Menu::paint(juce::Graphics& g) {
 void AccountMenu::Menu::resized() {
   auto area = contentBounds().reduced(kMenuPad);
   settings.setBounds(area.removeFromTop(MenuRow::kHeight));
-  const auto second = area.removeFromTop(MenuRow::kHeight);
-  login.setBounds(second);
-  logout.setBounds(second);
+  background.setBounds(area.removeFromTop(MenuRow::kHeight));
+  const auto last = area.removeFromTop(MenuRow::kHeight);
+  login.setBounds(last);
+  logout.setBounds(last);
 }
 
 // Pill
@@ -53,6 +55,10 @@ AccountMenu::AccountMenu() : Clickable({}) {
   menu_.settings.onClick = [this] {
     menu_.close();
     if (onOpenSettings) onOpenSettings();
+  };
+  menu_.background.onClick = [this] {
+    menu_.close();
+    if (onChooseBackground) onChooseBackground();
   };
   menu_.login.onClick = [this] {
     menu_.close();
