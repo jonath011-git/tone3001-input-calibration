@@ -16,10 +16,52 @@ MainScreen::MainScreen(Services& services)
 
   spreadEnabled_.onChange = [this] { syncMeters(); };
   services_.chain.addListener(this);
+  services_.prefs.addListener(this);
+  loadBackground();
   syncMeters();
 }
 
-MainScreen::~MainScreen() { services_.chain.removeListener(this); }
+MainScreen::~MainScreen() {
+  services_.prefs.removeListener(this);
+  services_.chain.removeListener(this);
+}
+
+void MainScreen::prefChanged(const juce::String& key) {
+  if (key == "t3k.backgroundImage") loadBackground();
+}
+
+void MainScreen::loadBackground() {
+  const auto path = services_.prefs.get("t3k.backgroundImage");
+  const juce::File file(path);
+  backgroundImage_ = path.isNotEmpty() && file.existsAsFile()
+                         ? juce::ImageFileFormat::loadFrom(file)
+                         : juce::Image{};
+  repaint();
+}
+
+void MainScreen::paint(juce::Graphics& g) {
+  g.fillAll(juce::Colours::black);
+  if (!backgroundImage_.isValid()) return;
+
+  // Cover the whole central band without distorting the image. Crop only
+  // the excess dimension when the image and the window have different ratios.
+  const auto dest = getLocalBounds().toFloat();
+  const float imageW = static_cast<float>(backgroundImage_.getWidth());
+  const float imageH = static_cast<float>(backgroundImage_.getHeight());
+  const float destRatio = dest.getWidth() / juce::jmax(1.0f, dest.getHeight());
+  const float imageRatio = imageW / juce::jmax(1.0f, imageH);
+  float sourceX = 0.0f, sourceY = 0.0f, sourceW = imageW, sourceH = imageH;
+  if (imageRatio > destRatio) {
+    sourceW = imageH * destRatio;
+    sourceX = (imageW - sourceW) * 0.5f;
+  } else {
+    sourceH = imageW / destRatio;
+    sourceY = (imageH - sourceH) * 0.5f;
+  }
+  g.drawImage(backgroundImage_, 0, 0, getWidth(), getHeight(),
+              juce::roundToInt(sourceX), juce::roundToInt(sourceY),
+              juce::roundToInt(sourceW), juce::roundToInt(sourceH));
+}
 
 void MainScreen::chainChanged(const ChainState&) { syncMeters(); }
 
