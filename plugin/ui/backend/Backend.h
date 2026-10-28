@@ -43,7 +43,8 @@ public:
   // Chain mutations
   // Returns the new block id, "" on failure.
   virtual std::string loadTone(const juce::String& toneJson, const std::string& targetInsertId) = 0;
-  virtual juce::var loadExternalVst3(const juce::File& file, const std::string& targetInsertId) = 0;
+  virtual juce::var loadExternalVst3(const juce::File& file, const std::string& targetInsertId,
+                                    int selectedUniqueId = 0) = 0;
   // Empty means the editor opened successfully. Default keeps fixture backends usable.
   virtual juce::String openExternalVst3Editor(const std::string&) { return {}; }
   // { blockId } or a user-facing { error }.
