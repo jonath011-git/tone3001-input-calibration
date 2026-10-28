@@ -8,6 +8,7 @@
 #include "core/Paint.h"
 #include "core/Theme.h"
 #include "services/Vst3Library.h"
+#include "ExternalVst3Host.h"
 
 namespace t3k::ui {
 
@@ -58,11 +59,27 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
          juce::Component::SafePointer<AddTile> safeThis(this);
          menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
                             [safeThis, files](int result) {
-           if (safeThis == nullptr || result <= 0 ||
-               static_cast<size_t>(result) > files.size()) return;
-           const auto error = safeThis->services().chain.loadExternalVst3(
-               files[static_cast<size_t>(result - 1)], safeThis->blockId());
-           if (error.isNotEmpty()) safeThis->services().toast.show(error);
+           if (safeThis == nullptr || result <= 0 || static_cast<size_t>(result) > files.size()) return;
+           const auto file = files[static_cast<size_t>(result - 1)];
+           const auto scan = ExternalVst3Host::scanVst3File(file);
+           if (!scan.ok) {
+             safeThis->services().toast.show(scan.error.isNotEmpty() ? scan.error : "Couldn't inspect the VST3 plug-in.");
+             return;
+           }
+           juce::PopupMenu types;
+           for (size_t i = 0; i < scan.plugins.size(); ++i) {
+             const auto& plugin = scan.plugins[i];
+             juce::String label = plugin.name;
+             if (plugin.manufacturerName.isNotEmpty()) label += " — " + plugin.manufacturerName;
+             types.addItem(static_cast<int>(i + 1), label);
+           }
+           types.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(safeThis.getComponent()),
+                               [safeThis, file, plugins = scan.plugins](int typeResult) {
+             if (safeThis == nullptr || typeResult <= 0 || static_cast<size_t>(typeResult) > plugins.size()) return;
+             const int uniqueId = plugins[static_cast<size_t>(typeResult - 1)].uniqueId;
+             const auto error = safeThis->services().chain.loadExternalVst3(file, safeThis->blockId(), uniqueId);
+             if (safeThis != nullptr && error.isNotEmpty()) safeThis->services().toast.show(error);
+           });
          });
        }},
       {"VST3 Local", Icon::File, help::Key::loadFileTile,
