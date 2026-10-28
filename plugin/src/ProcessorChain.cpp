@@ -282,11 +282,12 @@ juce::String TONE3000Processor::openExternalVst3Editor(const std::string& blockI
 }
 
 juce::var TONE3000Processor::loadExternalVst3(const juce::File& vst3File,
-                                             const std::string& targetInsertId) {
+                                             const std::string& targetInsertId,
+                                             int selectedUniqueId) {
   juce::PluginDescription description;
   juce::String error;
   auto host = ExternalVst3Host::createFromFile(
-      vst3File, chainSampleRate(), chainDomainBlockSize(), description, error);
+      vst3File, chainSampleRate(), chainDomainBlockSize(), description, error, selectedUniqueId);
   if (host == nullptr) {
     juce::DynamicObject::Ptr out = new juce::DynamicObject();
     out->setProperty("error", error.isNotEmpty() ? error : "Couldn't load the VST3 plug-in.");

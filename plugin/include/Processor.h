@@ -45,6 +45,11 @@ public:
   bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
   void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+  // Input calibration source: levels measured before global Input Gain and
+  // before any block in the NAM/VST3 chain.
+  float getPreChainInputRmsDb() const noexcept { return preChainInputRmsDb.load(); }
+  float getPreChainInputPeakDb() const noexcept { return preChainInputPeakDb.load(); }
   using AudioProcessor::processBlock;
 
   juce::AudioProcessorEditor* createEditor() override;
@@ -174,7 +179,8 @@ public:
   // Load an installed VST3 into an INSERT slot. The plug-in path is resolved
   // and instantiated off the audio thread; the wrapped processor runs in the
   // normal chain callback after PRE EQ and before POST EQ/mix.
-  juce::var loadExternalVst3(const juce::File& vst3File, const std::string& targetInsertId = {});
+  juce::var loadExternalVst3(const juce::File& vst3File, const std::string& targetInsertId = {},
+                             int selectedUniqueId = 0);
   // Opens the native editor popup for an already loaded external VST3 block.
   // Empty string means success; otherwise the returned string is user-facing.
   juce::String openExternalVst3Editor(const std::string& blockId);
@@ -1258,6 +1264,8 @@ private:
   juce::AudioProcessLoadMeasurer loadMeasurer;
 
   // Meter level tracking, per channel (mono sources report L == R).
+  mutable std::atomic<float> preChainInputRmsDb{-120.0f};
+  mutable std::atomic<float> preChainInputPeakDb{-120.0f};
   mutable std::atomic<float> inputMeterLevelL{-60.0f};
   mutable std::atomic<float> inputMeterLevelR{-60.0f};
   mutable std::atomic<float> outputMeterLevelL{-60.0f};

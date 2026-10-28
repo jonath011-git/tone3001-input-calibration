@@ -28,7 +28,8 @@ public:
   bool resetToDefault() override;
 
   std::string loadTone(const juce::String& toneJson, const std::string& targetInsertId) override;
-  juce::var loadExternalVst3(const juce::File& file, const std::string& targetInsertId) override;
+  juce::var loadExternalVst3(const juce::File& file, const std::string& targetInsertId,
+                            int selectedUniqueId = 0) override;
   juce::String openExternalVst3Editor(const std::string& blockId) override;
   juce::var loadLocalTonePath(const juce::File& source, const std::string& targetInsertId) override;
   juce::var loadLocalToneUrls(const juce::Array<juce::URL>& sources,
@@ -86,6 +87,8 @@ public:
   juce::var openBluetoothMidiPairing() override;
   void setAudioInputMetering(bool enabled) override;
   juce::var getAudioInputLevels() override;
+  float getPreChainInputRmsDb() const override;
+  float getPreChainInputPeakDb() const override;
 
   juce::var getMidiMapState() override;
   void setMidiChannelFilter(int channel) override;

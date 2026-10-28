@@ -50,8 +50,9 @@ std::string ProcessorBackend::loadTone(const juce::String& toneJson,
   return processor_.loadTone(toneJson, targetInsertId);
 }
 juce::var ProcessorBackend::loadExternalVst3(const juce::File& file,
-                                              const std::string& targetInsertId) {
-  return processor_.loadExternalVst3(file, targetInsertId);
+                                              const std::string& targetInsertId,
+                                              int selectedUniqueId) {
+  return processor_.loadExternalVst3(file, targetInsertId, selectedUniqueId);
 }
 juce::String ProcessorBackend::openExternalVst3Editor(const std::string& blockId) {
   return processor_.openExternalVst3Editor(blockId);
@@ -210,6 +211,14 @@ void ProcessorBackend::setAudioInputMetering(bool enabled) {
 }
 juce::var ProcessorBackend::getAudioInputLevels() {
   return withAudioSettings([](auto& s) { return s.getInputLevels(); });
+}
+
+float ProcessorBackend::getPreChainInputRmsDb() const {
+  return processor_.getPreChainInputRmsDb();
+}
+
+float ProcessorBackend::getPreChainInputPeakDb() const {
+  return processor_.getPreChainInputPeakDb();
 }
 
 // MIDI mapping

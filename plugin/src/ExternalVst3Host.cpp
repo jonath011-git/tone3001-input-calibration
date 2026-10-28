@@ -63,9 +63,40 @@ ExternalVst3Host::ScanResult ExternalVst3Host::scanInstalledVst3() {
   return result;
 }
 
+ExternalVst3Host::ScanResult ExternalVst3Host::scanVst3File(const juce::File& file) {
+  ScanResult result;
+#if JUCE_PLUGINHOST_VST3
+  if (!file.exists()) { result.error = "The selected VST3 file does not exist."; return result; }
+  auto manager = getFormatManager();
+  juce::AudioPluginFormat* vst3 = nullptr;
+  for (int i = 0; i < manager->getNumFormats(); ++i) {
+    auto* format = manager->getFormat(i);
+    if (format != nullptr && format->getName().containsIgnoreCase("VST3")) { vst3 = format; break; }
+  }
+  if (vst3 == nullptr) { result.error = "VST3 hosting is not available in this build."; return result; }
+  try {
+    juce::OwnedArray<juce::PluginDescription> descriptions;
+    vst3->findAllTypesForFile(descriptions, file.getFullPathName());
+    for (const auto* description : descriptions)
+      if (description != nullptr && description->pluginFormatName == vst3->getName()) result.plugins.push_back(*description);
+  } catch (const std::exception& e) {
+    result.error = "Could not inspect the selected VST3 plug-in: " + juce::String(e.what()); return result;
+  } catch (...) { result.error = "Could not inspect the selected VST3 plug-in."; return result; }
+  std::sort(result.plugins.begin(), result.plugins.end(), [](const auto& a, const auto& b) {
+    const int byName = a.name.compareIgnoreCase(b.name);
+    return byName == 0 ? a.manufacturerName.compareIgnoreCase(b.manufacturerName) < 0 : byName < 0;
+  });
+  if (result.plugins.empty()) { result.error = "No VST3 plug-in could be identified in the selected file."; return result; }
+  result.ok = true;
+#else
+  juce::ignoreUnused(file); result.error = "VST3 hosting is disabled for this platform/build.";
+#endif
+  return result;
+}
+
 std::unique_ptr<ExternalVst3Host> ExternalVst3Host::createFromFile(
     const juce::File& file, double sampleRate, int maximumBlockSize,
-    juce::PluginDescription& description, juce::String& error) {
+    juce::PluginDescription& description, juce::String& error, int selectedUniqueId) {
 #if JUCE_PLUGINHOST_VST3
   if (!file.exists() || sampleRate <= 0.0 || maximumBlockSize <= 0) {
     error = "The selected VST3 file is invalid.";
@@ -117,7 +148,14 @@ std::unique_ptr<ExternalVst3Host> ExternalVst3Host::createFromFile(
         ("No plugin type found for " + file.getFullPathName()).toRawUTF8());
     return {};
   }
-  description = *descriptions.getFirst();
+  const juce::PluginDescription* selected = descriptions.getFirst();
+  if (selectedUniqueId != 0) {
+    selected = nullptr;
+    for (const auto* candidate : descriptions)
+      if (candidate != nullptr && candidate->uniqueId == selectedUniqueId) { selected = candidate; break; }
+    if (selected == nullptr) { error = "The selected plug-in type was not found in the VST3 file. Please rescan the library."; return {}; }
+  }
+  description = *selected;
   return create(description, sampleRate, maximumBlockSize, error);
 #else
   juce::ignoreUnused(file, sampleRate, maximumBlockSize, description);
@@ -153,15 +191,79 @@ std::unique_ptr<ExternalVst3Host> ExternalVst3Host::create(
     return {};
   }
 
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] create begin name=" + description.name
+      + " | format=" + description.pluginFormatName
+      + " | file=" + description.fileOrIdentifier
+      + " | rate=" + juce::String(sampleRate)
+      + " | maxBlock=" + juce::String(maximumBlockSize));
+
+  juce::String creationError;
   auto instance = manager->createPluginInstance(description, sampleRate,
-                                                maximumBlockSize, error);
-  if (instance == nullptr)
+                                                maximumBlockSize, creationError);
+  if (instance == nullptr) {
+    error = creationError.isNotEmpty() ? creationError
+                                       : "JUCE returned no VST3 instance and no error message.";
+    juce::Logger::writeToLog(
+        "[VST3-DIAG] create FAILED name=" + description.name
+        + " | error=" + error);
+    CrashDiagnostics::logEvent(
+        "VST3-ERROR",
+        ("createPluginInstance failed for " + description.name
+         + " | file=" + description.fileOrIdentifier
+         + " | error=" + error).toRawUTF8());
     return {};
+  }
+
+  // Some VST3s instantiate with their main buses disabled. In that state
+  // JUCE reports zero total channels even though the component exposes audio
+  // buses. Enable only the main input/output buses before querying the active
+  // layout or preparing the processor.
+  const int inputBusCountBefore = instance->getBusCount(true);
+  const int outputBusCountBefore = instance->getBusCount(false);
+  juce::String busStateBefore;
+  for (int i = 0; i < inputBusCountBefore; ++i) {
+    auto* bus = instance->getBus(true, i);
+    if (bus != nullptr) {
+      busStateBefore += " inBus" + juce::String(i)
+          + "{enabled=" + juce::String(bus->isEnabled() ? "yes" : "no")
+          + ",channels=" + juce::String(bus->getNumberOfChannels())
+          + ",default=" + juce::String(bus->getDefaultLayout().size()) + "}";
+      if (i == 0 && !bus->isEnabled())
+        bus->enable(true);
+    }
+  }
+  for (int i = 0; i < outputBusCountBefore; ++i) {
+    auto* bus = instance->getBus(false, i);
+    if (bus != nullptr) {
+      busStateBefore += " outBus" + juce::String(i)
+          + "{enabled=" + juce::String(bus->isEnabled() ? "yes" : "no")
+          + ",channels=" + juce::String(bus->getNumberOfChannels())
+          + ",default=" + juce::String(bus->getDefaultLayout().size()) + "}";
+      if (i == 0 && !bus->isEnabled())
+        bus->enable(true);
+    }
+  }
+
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] bus negotiation name=" + description.name
+      + " | busesBefore=" + busStateBefore
+      + " | inputBuses=" + juce::String(instance->getBusCount(true))
+      + " | outputBuses=" + juce::String(instance->getBusCount(false))
+      + " | inputsAfterEnable=" + juce::String(instance->getTotalNumInputChannels())
+      + " | outputsAfterEnable=" + juce::String(instance->getTotalNumOutputChannels()));
+
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] create success name=" + description.name
+      + " | inputs=" + juce::String(instance->getTotalNumInputChannels())
+      + " | outputs=" + juce::String(instance->getTotalNumOutputChannels()));
 
   instance->setNonRealtime(false);
   instance->prepareToPlay(sampleRate, maximumBlockSize);
-  return std::unique_ptr<ExternalVst3Host>(
-      new ExternalVst3Host(description, std::move(instance)));
+  auto host = std::unique_ptr<ExternalVst3Host>(
+      new ExternalVst3Host(description, std::move(instance), maximumBlockSize));
+  juce::Logger::writeToLog("[VST3-DIAG] host ready name=" + description.name);
+  return host;
 #else
   juce::ignoreUnused(description, sampleRate, maximumBlockSize);
   error = "VST3 hosting is disabled for this platform/build.";
@@ -193,14 +295,49 @@ public:
 
 ExternalVst3Host::ExternalVst3Host(
     juce::PluginDescription description,
-    std::unique_ptr<juce::AudioPluginInstance> plugin)
-    : pluginDescription(std::move(description)), instance(std::move(plugin)) {}
+    std::unique_ptr<juce::AudioPluginInstance> plugin,
+    int maximumBlockSize)
+    : pluginDescription(std::move(description)), instance(std::move(plugin)) {
+  if (instance != nullptr && maximumBlockSize > 0) {
+    mainInputChannels = instance->getMainBusNumInputChannels();
+    mainOutputChannels = instance->getMainBusNumOutputChannels();
+    totalInputChannels = instance->getTotalNumInputChannels();
+    totalOutputChannels = instance->getTotalNumOutputChannels();
+    const int requiredChannels = juce::jmax(1, totalInputChannels, totalOutputChannels);
+    pluginBuffer.setSize(requiredChannels, maximumBlockSize, false, true, false);
+    pluginBuffer.clear();
+  }
+}
 
 void ExternalVst3Host::prepare(double sampleRate, int maximumBlockSize) {
   if (instance == nullptr || sampleRate <= 0.0 || maximumBlockSize <= 0)
     return;
   instance->releaseResources();
   instance->prepareToPlay(sampleRate, maximumBlockSize);
+
+  // Cache the negotiated bus geometry and allocate the processing buffer off
+  // the audio thread. Some plug-ins expose auxiliary input buses, so the
+  // scratch must cover the total channel count even though chain routing only
+  // carries the main mono/stereo bus.
+  const auto layout = instance->getBusesLayout();
+  mainInputChannels = layout.getMainInputChannelSet().size();
+  mainOutputChannels = layout.getMainOutputChannelSet().size();
+  totalInputChannels = instance->getTotalNumInputChannels();
+  totalOutputChannels = instance->getTotalNumOutputChannels();
+  const int requiredChannels = juce::jmax(1, totalInputChannels, totalOutputChannels);
+  pluginBuffer.setSize(requiredChannels, maximumBlockSize, false, true, false);
+  pluginBuffer.clear();
+
+  juce::Logger::writeToLog(
+      "[VST3-DIAG] prepare name=" + pluginDescription.name
+      + " | rate=" + juce::String(sampleRate)
+      + " | maxBlock=" + juce::String(maximumBlockSize)
+      + " | inputBuses=" + juce::String(layout.inputBuses.size())
+      + " | outputBuses=" + juce::String(layout.outputBuses.size())
+      + " | mainIn=" + juce::String(mainInputChannels)
+      + " | mainOut=" + juce::String(mainOutputChannels)
+      + " | totalIn=" + juce::String(totalInputChannels)
+      + " | totalOut=" + juce::String(totalOutputChannels));
 }
 
 ExternalVst3Host::~ExternalVst3Host() {
@@ -249,12 +386,99 @@ void ExternalVst3Host::processBlock(juce::AudioBuffer<float>& audio,
                                     juce::MidiBuffer& midi) noexcept {
   if (instance == nullptr)
     return;
+
+  const int numSamples = audio.getNumSamples();
+  const int chainChannels = audio.getNumChannels();
+
+  // The chain supports mono and stereo. Translate that signal into the exact
+  // channel layout negotiated by the plug-in, then map the result back. This
+  // applies in both mono and stereo chain modes: a stereo effect on a mono
+  // lane receives dual-mono input, and its stereo output is folded to mono
+  // before the next block. Mono plug-ins on a stereo chain receive a mono
+  // fold and return a centered dual-mono signal.
+  //
+  // All scratch storage and bus geometry are prepared off the audio thread.
+  // If a host sends an oversized block, keep the original audio untouched.
+  if (numSamples <= 0 || numSamples > pluginBuffer.getNumSamples() ||
+      pluginBuffer.getNumChannels() < juce::jmax(1, totalInputChannels, totalOutputChannels))
+    return;
+
+#if JUCE_DEBUG
+  static std::atomic<unsigned int> diagnosticCallbackCount{0};
+  const auto diagnosticCount = diagnosticCallbackCount.fetch_add(1, std::memory_order_relaxed);
+  const bool emitDiagnostic = (diagnosticCount % 512u) == 0u;
+  float inputPeak = 0.0f;
+  if (emitDiagnostic)
+    for (int channel = 0; channel < chainChannels; ++channel)
+      inputPeak = juce::jmax(inputPeak, audio.getMagnitude(channel, 0, numSamples));
+#endif
+
+  // Start from silence so unused side-chain/auxiliary input channels cannot
+  // retain samples from the previous callback.
+  pluginBuffer.clear(0, numSamples);
+
   try {
-    instance->processBlock(audio, midi);
+    if (mainInputChannels == 1) {
+      if (chainChannels == 1) {
+        pluginBuffer.copyFrom(0, 0, audio, 0, 0, numSamples);
+      } else if (chainChannels >= 2) {
+        pluginBuffer.addFrom(0, 0, audio, 0, 0, numSamples, 0.5f);
+        pluginBuffer.addFrom(0, 0, audio, 1, 0, numSamples, 0.5f);
+      }
+    } else if (mainInputChannels >= 2) {
+      pluginBuffer.copyFrom(0, 0, audio, 0, 0, numSamples);
+      if (chainChannels >= 2)
+        pluginBuffer.copyFrom(1, 0, audio, 1, 0, numSamples);
+      else
+        pluginBuffer.copyFrom(1, 0, audio, 0, 0, numSamples);
+    }
+
+    juce::AudioBuffer<float> pluginView(pluginBuffer.getArrayOfWritePointers(),
+                                        pluginBuffer.getNumChannels(), numSamples);
+    instance->processBlock(pluginView, midi);
+
+    if (mainOutputChannels <= 0) {
+      audio.clear();
+    } else if (chainChannels == 1) {
+      if (mainOutputChannels == 1) {
+        audio.copyFrom(0, 0, pluginView, 0, 0, numSamples);
+      } else {
+        audio.copyFrom(0, 0, pluginView, 0, 0, numSamples);
+        audio.addFrom(0, 0, pluginView, 1, 0, numSamples);
+        audio.applyGain(0, 0, numSamples, 0.5f);
+      }
+    } else if (mainOutputChannels == 1) {
+      audio.copyFrom(0, 0, pluginView, 0, 0, numSamples);
+      audio.copyFrom(1, 0, pluginView, 0, 0, numSamples);
+    } else {
+      audio.copyFrom(0, 0, pluginView, 0, 0, numSamples);
+      audio.copyFrom(1, 0, pluginView, 1, 0, numSamples);
+    }
+
+#if JUCE_DEBUG
+    if (emitDiagnostic) {
+      float outputPeak = 0.0f;
+      for (int channel = 0; channel < chainChannels; ++channel)
+        outputPeak = juce::jmax(outputPeak, audio.getMagnitude(channel, 0, numSamples));
+      juce::Logger::writeToLog(
+          "[VST3-DIAG] process name=" + pluginDescription.name
+          + " | chainCh=" + juce::String(chainChannels)
+          + " | mainIn=" + juce::String(mainInputChannels)
+          + " | mainOut=" + juce::String(mainOutputChannels)
+          + " | totalIn=" + juce::String(totalInputChannels)
+          + " | totalOut=" + juce::String(totalOutputChannels)
+          + " | inPeak=" + juce::String(inputPeak, 6)
+          + " | outPeak=" + juce::String(outputPeak, 6));
+    }
+#endif
   } catch (...) {
-    // Never let a third-party exception unwind through the host audio callback.
-    audio.clear();
+    // Audio was not changed until processing completed, so on a third-party
+    // exception we preserve dry pass-through rather than turning the block
+    // into silence. Keep exceptions inside the host boundary.
     midi.clear();
+#if JUCE_DEBUG
+    juce::Logger::writeToLog("[VST3-DIAG] exception while processing " + pluginDescription.name);
+#endif
   }
 }
 

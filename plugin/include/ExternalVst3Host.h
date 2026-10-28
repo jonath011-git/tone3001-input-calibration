@@ -21,10 +21,14 @@ public:
   // never from processBlock().
   static ScanResult scanInstalledVst3();
 
-  // Creates an instance directly from a VST3 module/bundle selected by the user.
+  // Discovers every plug-in type contained in a selected VST3 module/bundle.
+  static ScanResult scanVst3File(const juce::File& file);
+
+  // Creates an instance from a selected VST3 module/bundle. A non-zero uniqueId
+  // selects that exact type; zero preserves the legacy first-type behavior.
   static std::unique_ptr<ExternalVst3Host> createFromFile(
       const juce::File& file, double sampleRate, int maximumBlockSize,
-      juce::PluginDescription& description, juce::String& error);
+      juce::PluginDescription& description, juce::String& error, int selectedUniqueId = 0);
 
   // Creates one instance from a previously discovered description.
   // Call off the audio thread; caller owns the returned host.
@@ -66,10 +70,19 @@ private:
   class EditorWindow;
 
   ExternalVst3Host(juce::PluginDescription description,
-                   std::unique_ptr<juce::AudioPluginInstance> plugin);
+                   std::unique_ptr<juce::AudioPluginInstance> plugin,
+                   int maximumBlockSize);
 
   juce::PluginDescription pluginDescription;
   std::unique_ptr<juce::AudioPluginInstance> instance;
+  // Preallocated host buffer with the exact channel count required by the
+  // plug-in. It is used for both direct and mono↔stereo adaptation so the
+  // audio thread never allocates and a plug-in exception cannot erase dry audio.
+  juce::AudioBuffer<float> pluginBuffer;
+  int mainInputChannels{0};
+  int mainOutputChannels{0};
+  int totalInputChannels{0};
+  int totalOutputChannels{0};
   // Declared after instance so the editor window is destroyed first.
   std::unique_ptr<EditorWindow> editorWindow;
 };

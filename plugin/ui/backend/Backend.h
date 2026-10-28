@@ -43,7 +43,8 @@ public:
   // Chain mutations
   // Returns the new block id, "" on failure.
   virtual std::string loadTone(const juce::String& toneJson, const std::string& targetInsertId) = 0;
-  virtual juce::var loadExternalVst3(const juce::File& file, const std::string& targetInsertId) = 0;
+  virtual juce::var loadExternalVst3(const juce::File& file, const std::string& targetInsertId,
+                                    int selectedUniqueId = 0) = 0;
   // Empty means the editor opened successfully. Default keeps fixture backends usable.
   virtual juce::String openExternalVst3Editor(const std::string&) { return {}; }
   // { blockId } or a user-facing { error }.
@@ -110,6 +111,11 @@ public:
   virtual juce::var openBluetoothMidiPairing() = 0;
   virtual void setAudioInputMetering(bool enabled) = 0;
   virtual juce::var getAudioInputLevels() = 0;
+
+  // Raw signal levels after input-channel folding but before the global Input
+  // Gain, gate, or any NAM/VST3 block. Defaults keep fixture backends usable.
+  virtual float getPreChainInputRmsDb() const { return -120.0f; }
+  virtual float getPreChainInputPeakDb() const { return -120.0f; }
 
   // MIDI mapping (every build)
   virtual juce::var getMidiMapState() = 0;

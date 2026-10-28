@@ -1,4 +1,6 @@
-# TONE3000 Plugin
+# TONE3000 Plugin mod
+<img width="1377" height="1061" alt="image" src="https://github.com/user-attachments/assets/39c1dd8f-50e8-48a4-a2ce-9bb29ce382ec" />
+
 
 <img width="1377" height="1061" alt="image" src="https://github.com/user-attachments/assets/5b3d754b-0b7f-438f-bba0-bffe3ce046ec" />
 

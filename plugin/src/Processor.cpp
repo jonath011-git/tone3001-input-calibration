@@ -1822,6 +1822,29 @@ void TONE3000Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     }
   }
 
+  // Capture the source level after channel folding, but before the global
+  // Input Gain, noise gate, tuner, or first NAM/VST3 block. Calibration reads
+  // these atomics from the UI; no allocation or locking on the audio thread.
+  {
+    double sumSquares = 0.0;
+    float peak = 0.0f;
+    for (int ch = 0; ch < numChannels; ++ch) {
+      const auto* samples = buffer.getReadPointer(ch);
+      for (int i = 0; i < numSamples; ++i) {
+        const float sample = samples[i];
+        sumSquares += static_cast<double>(sample) * sample;
+        peak = std::max(peak, std::abs(sample));
+      }
+    }
+    const double meanSquare = sumSquares / static_cast<double>(numSamples * numChannels);
+    const float rmsDb = meanSquare > 0.0
+        ? static_cast<float>(10.0 * std::log10(meanSquare)) : -120.0f;
+    const float peakDb = peak > 0.0f
+        ? juce::Decibels::gainToDecibels(peak) : -120.0f;
+    preChainInputRmsDb.store(std::max(-120.0f, rmsDb), std::memory_order_relaxed);
+    preChainInputPeakDb.store(std::max(-120.0f, peakDb), std::memory_order_relaxed);
+  }
+
   // #########################
   // Input gain + noise gate
   // #########################

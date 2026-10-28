@@ -1,6 +1,6 @@
 // Account pill for the header (port of AccountMenu.tsx): hamburger + avatar
-// in a bordered rounded-full button opening a dark dropdown with Settings
-// and Login/Logout.
+// in a bordered rounded-full button opening a dark dropdown with Settings,
+// Background, and Login/Logout.
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -26,7 +26,7 @@ public:
   void setAvatar(ImageLoader& images, const juce::String& url) { avatar_.setImage(images, url); }
   void openMenu();
 
-  std::function<void()> onOpenSettings, onLogin, onLogout;
+  std::function<void()> onOpenSettings, onChooseBackground, onLogin, onLogout;
 
   void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
   void resized() override;
@@ -38,6 +38,7 @@ private:
     void paint(juce::Graphics& g) override;
     void resized() override;
     MenuRow settings{"Settings", Icon::Settings};
+    MenuRow background{"Background", std::nullopt};
     MenuRow login{"Login", Icon::LogIn};
     MenuRow logout{"Logout", Icon::LogOut};
   };

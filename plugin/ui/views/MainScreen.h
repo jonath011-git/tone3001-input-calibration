@@ -13,7 +13,7 @@
 
 namespace t3k::ui {
 
-class MainScreen : public juce::Component, private ChainStore::Listener {
+class MainScreen : public juce::Component, private ChainStore::Listener, private UiPrefs::Listener {
 public:
   static constexpr int kPadX = 24;
   // 358 matches Figma's BLOCK column (title + gap + card).
@@ -24,16 +24,20 @@ public:
 
   ChainScreen& chainScreen() { return chain_; }
 
+  void paint(juce::Graphics& g) override;
   void resized() override;
 
 private:
   void chainChanged(const ChainState& state) override;
   void syncMeters();
+  void prefChanged(const juce::String& key) override;
+  void loadBackground();
 
   Services& services_;
   ParamBinding spreadEnabled_;
   DbMeter inputMeter_, outputMeter_;
   ChainScreen chain_;
+  juce::Image backgroundImage_;
 };
 
 }  // namespace t3k::ui
