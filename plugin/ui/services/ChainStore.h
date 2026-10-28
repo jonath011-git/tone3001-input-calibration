@@ -37,7 +37,8 @@ public:
   // Actions (each resyncs afterwards)
   // Add a tone at an insert slot; the new blockId, "" on failure.
   std::string loadTone(const juce::String& toneJson, const std::string& targetInsertId = {});
-  juce::String loadExternalVst3(const juce::File& file, const std::string& targetInsertId = {});
+  juce::String loadExternalVst3(const juce::File& file, const std::string& targetInsertId = {},
+                                int selectedUniqueId = 0);
   // Load a local .nam/.wav file or a folder of them ("" = success, else a
   // user-facing error).
   juce::String loadLocalTonePath(const juce::File& source, const std::string& targetId);
