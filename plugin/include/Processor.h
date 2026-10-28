@@ -174,7 +174,8 @@ public:
   // Load an installed VST3 into an INSERT slot. The plug-in path is resolved
   // and instantiated off the audio thread; the wrapped processor runs in the
   // normal chain callback after PRE EQ and before POST EQ/mix.
-  juce::var loadExternalVst3(const juce::File& vst3File, const std::string& targetInsertId = {});
+  juce::var loadExternalVst3(const juce::File& vst3File, const std::string& targetInsertId = {},
+                             int selectedUniqueId = 0);
   // Opens the native editor popup for an already loaded external VST3 block.
   // Empty string means success; otherwise the returned string is user-facing.
   juce::String openExternalVst3Editor(const std::string& blockId);
