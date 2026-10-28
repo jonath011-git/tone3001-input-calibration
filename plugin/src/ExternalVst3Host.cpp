@@ -63,9 +63,40 @@ ExternalVst3Host::ScanResult ExternalVst3Host::scanInstalledVst3() {
   return result;
 }
 
+ExternalVst3Host::ScanResult ExternalVst3Host::scanVst3File(const juce::File& file) {
+  ScanResult result;
+#if JUCE_PLUGINHOST_VST3
+  if (!file.exists()) { result.error = "The selected VST3 file does not exist."; return result; }
+  auto manager = getFormatManager();
+  juce::AudioPluginFormat* vst3 = nullptr;
+  for (int i = 0; i < manager->getNumFormats(); ++i) {
+    auto* format = manager->getFormat(i);
+    if (format != nullptr && format->getName().containsIgnoreCase("VST3")) { vst3 = format; break; }
+  }
+  if (vst3 == nullptr) { result.error = "VST3 hosting is not available in this build."; return result; }
+  try {
+    juce::OwnedArray<juce::PluginDescription> descriptions;
+    vst3->findAllTypesForFile(descriptions, file.getFullPathName());
+    for (const auto* description : descriptions)
+      if (description != nullptr && description->pluginFormatName == vst3->getName()) result.plugins.push_back(*description);
+  } catch (const std::exception& e) {
+    result.error = "Could not inspect the selected VST3 plug-in: " + juce::String(e.what()); return result;
+  } catch (...) { result.error = "Could not inspect the selected VST3 plug-in."; return result; }
+  std::sort(result.plugins.begin(), result.plugins.end(), [](const auto& a, const auto& b) {
+    const int byName = a.name.compareIgnoreCase(b.name);
+    return byName == 0 ? a.manufacturerName.compareIgnoreCase(b.manufacturerName) < 0 : byName < 0;
+  });
+  if (result.plugins.empty()) { result.error = "No VST3 plug-in could be identified in the selected file."; return result; }
+  result.ok = true;
+#else
+  juce::ignoreUnused(file); result.error = "VST3 hosting is disabled for this platform/build.";
+#endif
+  return result;
+}
+
 std::unique_ptr<ExternalVst3Host> ExternalVst3Host::createFromFile(
     const juce::File& file, double sampleRate, int maximumBlockSize,
-    juce::PluginDescription& description, juce::String& error) {
+    juce::PluginDescription& description, juce::String& error, int selectedUniqueId) {
 #if JUCE_PLUGINHOST_VST3
   if (!file.exists() || sampleRate <= 0.0 || maximumBlockSize <= 0) {
     error = "The selected VST3 file is invalid.";
@@ -117,7 +148,14 @@ std::unique_ptr<ExternalVst3Host> ExternalVst3Host::createFromFile(
         ("No plugin type found for " + file.getFullPathName()).toRawUTF8());
     return {};
   }
-  description = *descriptions.getFirst();
+  const juce::PluginDescription* selected = descriptions.getFirst();
+  if (selectedUniqueId != 0) {
+    selected = nullptr;
+    for (const auto* candidate : descriptions)
+      if (candidate != nullptr && candidate->uniqueId == selectedUniqueId) { selected = candidate; break; }
+    if (selected == nullptr) { error = "The selected plug-in type was not found in the VST3 file. Please rescan the library."; return {}; }
+  }
+  description = *selected;
   return create(description, sampleRate, maximumBlockSize, error);
 #else
   juce::ignoreUnused(file, sampleRate, maximumBlockSize, description);
