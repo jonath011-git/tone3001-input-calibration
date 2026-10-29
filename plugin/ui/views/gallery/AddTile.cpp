@@ -66,9 +66,13 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
              safeThis->services().toast.show(scan.error.isNotEmpty() ? scan.error : "Couldn't inspect the VST3 plug-in.");
              return;
            }
+           // Temporary diagnostics: report what the shell scan found and what
+           // the second menu actually returns before attempting to load anything.
+           juce::String scanSummary = file.getFileName() + ": " +
+               juce::String(static_cast<int>(scan.plugins.size())) + " plug-in(s) détecté(s)";
+           safeThis->services().toast.show(scanSummary);
+
            // Defer the second menu until the first popup has fully closed.
-           // Otherwise the click that selected the shell can land on the first
-           // item of this new menu, silently inserting (often) Scheps Omni Channel.
            juce::Timer::callAfterDelay(250, [safeThis, file, plugins = scan.plugins] {
              if (safeThis == nullptr) return;
              juce::PopupMenu types;
@@ -80,8 +84,14 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
              }
              types.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(safeThis.getComponent()),
                                  [safeThis, file, plugins](int typeResult) {
-               if (safeThis == nullptr || typeResult <= 0 || static_cast<size_t>(typeResult) > plugins.size()) return;
-               const int uniqueId = plugins[static_cast<size_t>(typeResult - 1)].uniqueId;
+               if (safeThis == nullptr) return;
+               if (typeResult <= 0 || static_cast<size_t>(typeResult) > plugins.size()) {
+                 safeThis->services().toast.show("Sélection VST3 annulée.");
+                 return;
+               }
+               const auto& selectedPlugin = plugins[static_cast<size_t>(typeResult - 1)];
+               safeThis->services().toast.show("Sélection reçue : " + selectedPlugin.name);
+               const int uniqueId = selectedPlugin.uniqueId;
                const auto error = safeThis->services().chain.loadExternalVst3(file, safeThis->blockId(), uniqueId);
                if (safeThis != nullptr && error.isNotEmpty()) safeThis->services().toast.show(error);
              });
