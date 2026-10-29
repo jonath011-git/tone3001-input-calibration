@@ -69,7 +69,7 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
            // Defer the second menu until the first popup has fully closed.
            // Otherwise the click that selected the shell can land on the first
            // item of this new menu, silently inserting (often) Scheps Omni Channel.
-           juce::MessageManager::callAsync([safeThis, file, plugins = scan.plugins] {
+           juce::Timer::callAfterDelay(250, [safeThis, file, plugins = scan.plugins] {
              if (safeThis == nullptr) return;
              juce::PopupMenu types;
              for (size_t i = 0; i < plugins.size(); ++i) {
