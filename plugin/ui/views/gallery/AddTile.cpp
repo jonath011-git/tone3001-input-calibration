@@ -25,6 +25,10 @@ AddTile::AddTile(Services& services, std::string blockId, int size)
   setTitle("Add Tone");
 }
 
+AddTile::~AddTile() {
+  if (vst3TypeMenu_ != nullptr) vst3TypeMenu_->close();
+}
+
 void AddTile::setRouting(Routing routing) {
   if (routing_ == routing) return;
   routing_ = routing;
@@ -66,35 +70,42 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
              safeThis->services().toast.show(scan.error.isNotEmpty() ? scan.error : "Couldn't inspect the VST3 plug-in.");
              return;
            }
-           // Temporary diagnostics: report what the shell scan found and what
-           // the second menu actually returns before attempting to load anything.
-           juce::String scanSummary = file.getFileName() + ": " +
-               juce::String(static_cast<int>(scan.plugins.size())) + " plug-in(s) détecté(s)";
-           safeThis->services().toast.show(scanSummary);
+           if (scan.plugins.empty()) {
+             safeThis->services().toast.show("Aucun plug-in trouvé dans ce fichier VST3.");
+             return;
+           }
 
-           // Defer the second menu until the first popup has fully closed.
-           juce::Timer::callAfterDelay(250, [safeThis, file, plugins = scan.plugins] {
+           // Use TONE3001's own overlay menu for shell contents. The JUCE
+           // popup used for the library closes through a different menu
+           // system; opening another JUCE popup from its callback caused the
+           // first shell entry to load without presenting the type chooser.
+           juce::MessageManager::callAsync([safeThis, file, plugins = scan.plugins] {
              if (safeThis == nullptr) return;
-             juce::PopupMenu types;
-             for (size_t i = 0; i < plugins.size(); ++i) {
-               const auto& plugin = plugins[i];
+
+             std::vector<ContextMenu::Item> typeItems;
+             typeItems.reserve(plugins.size());
+             for (const auto& plugin : plugins) {
                juce::String label = plugin.name;
-               if (plugin.manufacturerName.isNotEmpty()) label += " — " + plugin.manufacturerName;
-               types.addItem(static_cast<int>(i + 1), label);
+               if (plugin.manufacturerName.isNotEmpty())
+                 label += " — " + plugin.manufacturerName;
+               const int uniqueId = plugin.uniqueId;
+               typeItems.push_back({
+                   label, Icon::File, help::Key::loadFileTile,
+                   [safeThis, file, uniqueId] {
+                     if (safeThis == nullptr) return;
+                     const auto error = safeThis->services().chain.loadExternalVst3(
+                         file, safeThis->blockId(), uniqueId);
+                     if (safeThis != nullptr && error.isNotEmpty())
+                       safeThis->services().toast.show(error);
+                   }});
              }
-             types.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(safeThis.getComponent()),
-                                 [safeThis, file, plugins](int typeResult) {
-               if (safeThis == nullptr) return;
-               if (typeResult <= 0 || static_cast<size_t>(typeResult) > plugins.size()) {
-                 safeThis->services().toast.show("Sélection VST3 annulée.");
-                 return;
-               }
-               const auto& selectedPlugin = plugins[static_cast<size_t>(typeResult - 1)];
-               safeThis->services().toast.show("Sélection reçue : " + selectedPlugin.name);
-               const int uniqueId = selectedPlugin.uniqueId;
-               const auto error = safeThis->services().chain.loadExternalVst3(file, safeThis->blockId(), uniqueId);
-               if (safeThis != nullptr && error.isNotEmpty()) safeThis->services().toast.show(error);
-             });
+
+             if (safeThis->vst3TypeMenu_ != nullptr)
+               safeThis->vst3TypeMenu_->close();
+             safeThis->vst3TypeMenu_ =
+                 std::make_unique<ContextMenu>(std::move(typeItems));
+             safeThis->vst3TypeMenu_->openAtPoint(
+                 *safeThis, safeThis->getLocalBounds().getCentre());
            });
          });
        }},
