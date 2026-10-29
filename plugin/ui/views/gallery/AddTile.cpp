@@ -66,19 +66,25 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
              safeThis->services().toast.show(scan.error.isNotEmpty() ? scan.error : "Couldn't inspect the VST3 plug-in.");
              return;
            }
-           juce::PopupMenu types;
-           for (size_t i = 0; i < scan.plugins.size(); ++i) {
-             const auto& plugin = scan.plugins[i];
-             juce::String label = plugin.name;
-             if (plugin.manufacturerName.isNotEmpty()) label += " — " + plugin.manufacturerName;
-             types.addItem(static_cast<int>(i + 1), label);
-           }
-           types.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(safeThis.getComponent()),
-                               [safeThis, file, plugins = scan.plugins](int typeResult) {
-             if (safeThis == nullptr || typeResult <= 0 || static_cast<size_t>(typeResult) > plugins.size()) return;
-             const int uniqueId = plugins[static_cast<size_t>(typeResult - 1)].uniqueId;
-             const auto error = safeThis->services().chain.loadExternalVst3(file, safeThis->blockId(), uniqueId);
-             if (safeThis != nullptr && error.isNotEmpty()) safeThis->services().toast.show(error);
+           // Defer the second menu until the first popup has fully closed.
+           // Otherwise the click that selected the shell can land on the first
+           // item of this new menu, silently inserting (often) Scheps Omni Channel.
+           juce::MessageManager::callAsync([safeThis, file, plugins = scan.plugins] {
+             if (safeThis == nullptr) return;
+             juce::PopupMenu types;
+             for (size_t i = 0; i < plugins.size(); ++i) {
+               const auto& plugin = plugins[i];
+               juce::String label = plugin.name;
+               if (plugin.manufacturerName.isNotEmpty()) label += " — " + plugin.manufacturerName;
+               types.addItem(static_cast<int>(i + 1), label);
+             }
+             types.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(safeThis.getComponent()),
+                                 [safeThis, file, plugins](int typeResult) {
+               if (safeThis == nullptr || typeResult <= 0 || static_cast<size_t>(typeResult) > plugins.size()) return;
+               const int uniqueId = plugins[static_cast<size_t>(typeResult - 1)].uniqueId;
+               const auto error = safeThis->services().chain.loadExternalVst3(file, safeThis->blockId(), uniqueId);
+               if (safeThis != nullptr && error.isNotEmpty()) safeThis->services().toast.show(error);
+             });
            });
          });
        }},
