@@ -1,5 +1,6 @@
 #include "AddTile.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "GalleryGeometry.h"
