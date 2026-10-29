@@ -16,6 +16,7 @@ public:
   static Routing routingFor(int index, int count);
 
   AddTile(Services& services, std::string blockId, int size);
+  ~AddTile() override;
 
   void setRouting(Routing routing);
   // Paste the copied block into this slot; unset while there's nothing valid
@@ -35,6 +36,7 @@ private:
   Routing routing_ = Routing::none;
   bool canPaste_ = false;
   std::unique_ptr<juce::FileChooser> vst3Chooser_;
+  std::unique_ptr<ContextMenu> vst3TypeMenu_;
 };
 
 }  // namespace t3k::ui
