@@ -50,63 +50,58 @@ std::vector<ContextMenu::Item> AddTile::menuItems() {
          auto files = vst3library::plugins(services().prefs);
          if (files.empty()) files = vst3library::rescan(services().prefs);
 
+         // Expand every module into its actual plug-in types before building
+         // the library menu. Shell containers (e.g. WavesShell) are not shown
+         // as selectable entries; their contained effects are.
+         struct LibraryEntry {
+           juce::File file;
+           int uniqueId = 0;
+           juce::String name;
+           juce::String manufacturer;
+         };
+         std::vector<LibraryEntry> entries;
+         for (const auto& file : files) {
+           const auto scan = ExternalVst3Host::scanVst3File(file);
+           if (!scan.ok) continue;
+           for (const auto& plugin : scan.plugins) {
+             entries.push_back({file, plugin.uniqueId, plugin.name,
+                                plugin.manufacturerName});
+           }
+         }
+
+         std::sort(entries.begin(), entries.end(),
+                   [](const LibraryEntry& a, const LibraryEntry& b) {
+           const int byName = a.name.compareIgnoreCase(b.name);
+           if (byName != 0) return byName < 0;
+           return a.manufacturer.compareIgnoreCase(b.manufacturer) < 0;
+         });
+
          juce::PopupMenu menu;
-         if (files.empty()) {
-           menu.addItem(1, juce::String::fromUTF8("Bibliothèque vide - bouton VST3 en haut pour ajouter des dossiers"), false);
-           menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [](int) {});
+         if (entries.empty()) {
+           menu.addItem(1, juce::String::fromUTF8(
+               "Aucun plug-in VST3 trouvé - vérifiez les dossiers de la bibliothèque"), false);
+           menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+                              [](int) {});
            return;
          }
 
-         for (size_t i = 0; i < files.size(); ++i)
-           menu.addItem(static_cast<int>(i + 1), vst3library::displayName(files[i]));
+         for (size_t i = 0; i < entries.size(); ++i) {
+           juce::String label = entries[i].name;
+           if (entries[i].manufacturer.isNotEmpty())
+             label += " — " + entries[i].manufacturer;
+           menu.addItem(static_cast<int>(i + 1), label);
+         }
 
          juce::Component::SafePointer<AddTile> safeThis(this);
          menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-                            [safeThis, files](int result) {
-           if (safeThis == nullptr || result <= 0 || static_cast<size_t>(result) > files.size()) return;
-           const auto file = files[static_cast<size_t>(result - 1)];
-           const auto scan = ExternalVst3Host::scanVst3File(file);
-           if (!scan.ok) {
-             safeThis->services().toast.show(scan.error.isNotEmpty() ? scan.error : "Couldn't inspect the VST3 plug-in.");
-             return;
-           }
-           if (scan.plugins.empty()) {
-             safeThis->services().toast.show("Aucun plug-in trouvé dans ce fichier VST3.");
-             return;
-           }
-
-           // Use TONE3001's own overlay menu for shell contents. The JUCE
-           // popup used for the library closes through a different menu
-           // system; opening another JUCE popup from its callback caused the
-           // first shell entry to load without presenting the type chooser.
-           juce::MessageManager::callAsync([safeThis, file, plugins = scan.plugins] {
-             if (safeThis == nullptr) return;
-
-             std::vector<ContextMenu::Item> typeItems;
-             typeItems.reserve(plugins.size());
-             for (const auto& plugin : plugins) {
-               juce::String label = plugin.name;
-               if (plugin.manufacturerName.isNotEmpty())
-                 label += " — " + plugin.manufacturerName;
-               const int uniqueId = plugin.uniqueId;
-               typeItems.push_back({
-                   label, Icon::File, help::Key::loadFileTile,
-                   [safeThis, file, uniqueId] {
-                     if (safeThis == nullptr) return;
-                     const auto error = safeThis->services().chain.loadExternalVst3(
-                         file, safeThis->blockId(), uniqueId);
-                     if (safeThis != nullptr && error.isNotEmpty())
-                       safeThis->services().toast.show(error);
-                   }});
-             }
-
-             if (safeThis->vst3TypeMenu_ != nullptr)
-               safeThis->vst3TypeMenu_->close();
-             safeThis->vst3TypeMenu_ =
-                 std::make_unique<ContextMenu>(std::move(typeItems));
-             safeThis->vst3TypeMenu_->openAtPoint(
-                 *safeThis, safeThis->getLocalBounds().getCentre());
-           });
+                            [safeThis, entries](int result) {
+           if (safeThis == nullptr || result <= 0 ||
+               static_cast<size_t>(result) > entries.size()) return;
+           const auto& selected = entries[static_cast<size_t>(result - 1)];
+           const auto error = safeThis->services().chain.loadExternalVst3(
+               selected.file, safeThis->blockId(), selected.uniqueId);
+           if (safeThis != nullptr && error.isNotEmpty())
+             safeThis->services().toast.show(error);
          });
        }},
       {"VST3 Local", Icon::File, help::Key::loadFileTile,
